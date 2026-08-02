@@ -36,6 +36,11 @@ try {
       try { if (window.__game && window.__game.forceStart) window.__game.forceStart(); } catch (e) {}
     });
     await page.waitForTimeout(2200);
+    // 可强制画质档（验证 HIGH 后处理用）
+    if (process.env.TIER) {
+      await page.evaluate((t) => { try { window.__game && window.__game.setTier && window.__game.setTier(t); } catch (e) {} }, process.env.TIER);
+      await page.waitForTimeout(500);
+    }
     // 造几只丧尸让截图有内容（若有该调试钩子）
     await page.evaluate(() => {
       try { if (window.__game && window.__game.spawnTestEnemies) window.__game.spawnTestEnemies(6); } catch (e) {}

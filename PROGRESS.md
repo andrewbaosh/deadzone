@@ -62,3 +62,18 @@
   - 现在偏暗是**刻意**的（夜间恐怖），可见性主要靠阶段4 的玩家头灯 + 阶段2 的 Bloom 让亮部发光。若你早上觉得太暗，调 `atmosphere.js` 的 `toneMappingExposure`(1.1→1.2) 或 `level.js` 月光强度(1.5→1.8)。
   - 场景材质本就是 MeshStandard（含少量 metalness 0.3~0.6）；无 env map 时金属面偏黑，暂可接受，阶段8 上 PBR/env 时再统一。
   - draw call 逼近 150，阶段5 丧尸实例化后会降。
+
+### 阶段2 · 后处理氛围 ✅
+- **做了什么**：`src/graphics/PostFX.js`（pmndrs postprocessing 6.39 + n8ao 2.0）。
+  - MED：Bloom(阈值0.55只让亮部发光) + Vignette + SMAA。
+  - HIGH：追加 极弱色散(0.0006) + 弱胶片颗粒(0.08) + N8AO(halfRes 半分辨率, 小半径1.6, Low质量)。
+  - composer 用 HalfFloatType；色调映射移到链末 ToneMappingEffect(ACES)，开后处理时 renderer.toneMapping=None，关闭时还原。
+  - LOW/关闭：直接 renderer.render，完全不走 composer。
+  - **健壮性**：构建/重建包 try-catch，失败自动回退直接渲染，绝不崩游戏；档位变化时 `rebuild()` 重建链，保证 HIGH 才有 AO/色散/颗粒。
+  - 修正 draw call 统计：`renderer.info.autoReset=false` + 每帧手动 reset，累加 composer 所有 pass。
+- **改了哪些文件**：新增 `PostFX.js`；改 `main.js`(接入 composer 渲染、resize、onQualityChange 重建、info.reset)。渲染以外逻辑未动。
+- **自测**：AUTO 与 HIGH 均 ok=true 无 error。截图 `stage2.png`(LOW/无后处理) 与 `stage2-high.png`(HIGH：暗角+红眼bloom可见)。
+- **性能**：LOW **57** call（<80 ✅）；HIGH **168** call（>150 ❌，超 18）。
+  - ⚠️ **超预算原因**：①丧尸未实例化(每只多 draw call)；②N8AO 会重渲一遍场景深度(~+40 call)。两者都在**阶段5 实例化**后大幅下降，届时复测 HIGH 应回到 150 内。
+  - 立即可用的降载：改 `graphics.js` 里 `环境光遮蔽:false` 可马上砍掉 AO 的深度 pass。headless swiftshader 帧率(22-23fps)不代表真机，仅 draw call 数有参考意义。
+- **给你早上的问题**：HIGH 的 N8AO 是否保留？它最吃 draw call。若你的机器 AUTO 落在 HIGH 且觉得卡，`环境光遮蔽:false` 即可。我暂定保留（你点名要 N8AO/SSAO）。

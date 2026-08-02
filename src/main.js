@@ -14,6 +14,7 @@ import { QualityManager } from './graphics/QualityManager.js';
 import { StatsPanel } from './graphics/StatsPanel.js';
 import { GFX, 色卡 } from './config/graphics.js';
 import { setupAtmosphere, setFogDensity } from './graphics/atmosphere.js';
+import { PostFX } from './graphics/PostFX.js';
 
 /* ============ 渲染基础 ============ */
 const canvas = document.getElementById('game');
@@ -22,6 +23,7 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = 画面.阴影;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+renderer.info.autoReset = false;   // 手动每帧 reset，好统计 composer 多 pass 的总 draw call
 
 /* ============ 画质框架（阶段0） ============ */
 const statsPanel = new StatsPanel();
@@ -36,22 +38,28 @@ setupAtmosphere(renderer, scene, quality.params);
 const camera = new THREE.PerspectiveCamera(手感.视野角度, window.innerWidth / window.innerHeight, 0.05, 400);
 scene.add(camera);   // 相机进场景，好挂枪模型
 
+// 阶段2：后处理（Bloom/Vignette/SMAA + HIGH 追加 色散/颗粒/AO）
+const postfx = new PostFX(renderer, scene, camera, quality.params);
+postfx.setEnabled(quality.params.postFX);
+
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
   camera.updateProjectionMatrix();
   renderer.setSize(window.innerWidth, window.innerHeight);
+  postfx.setSize(window.innerWidth, window.innerHeight);
 });
 
 /* ============ 游戏对象 ============ */
 const level = new Level(scene, { shadowMapSize: quality.params.shadowMapSize });
 
-// 画质档变化时：调雾密度 + 阴影分辨率
+// 画质档变化时：调雾密度 + 阴影分辨率 + 后处理开关
 onQualityChange = (p) => {
   setFogDensity(scene, p.fogDensity);
   if (level.sun) {
     level.sun.shadow.mapSize.set(p.shadowMapSize, p.shadowMapSize);
     if (level.sun.shadow.map) { level.sun.shadow.map.dispose(); level.sun.shadow.map = null; }
   }
+  if (typeof postfx !== 'undefined') postfx.rebuild(p);   // 重建效果链以匹配新档位
 };
 const player = new Player(camera, level);
 const weapons = new WeaponSystem(camera, scene);
@@ -594,6 +602,7 @@ function frame() {
   const dt = Math.min(0.05, clock.getDelta());
   const time = clock.elapsedTime;
 
+  renderer.info.reset();   // 每帧手动清零，之后累加本帧所有 pass 的 draw call
   statsPanel.begin();
   quality.sample(dt);   // 前两秒自动测帧率、必要时降档
 
@@ -682,7 +691,7 @@ function frame() {
     updateHUD(dt);
   }
 
-  renderer.render(scene, camera);
+  postfx.render(dt);   // 内部：开后处理走 composer，否则直接 renderer.render
   statsPanel.end(renderer, { tier: quality.tierName, enemies: enemies.length });
 }
 
