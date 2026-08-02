@@ -55,6 +55,7 @@ export class Level {
     ground.receiveShadow = true;
     this.scene.add(ground);
     this.hitMeshes.push(ground);
+    this.ground = ground;   // 供阶段8 贴细节法线
 
     // 地面格子线，帮助判断距离和速度
     const grid = new THREE.GridHelper(S * 2, S, 0x3d4650, 0x333a42);

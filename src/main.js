@@ -18,6 +18,7 @@ import { setupAtmosphere, setFogDensity } from './graphics/atmosphere.js';
 import { PostFX } from './graphics/PostFX.js';
 import { DynamicLights } from './graphics/DynamicLights.js';
 import { EyeField } from './graphics/EyeField.js';
+import { makeDetailNormal } from './graphics/detailTexture.js';
 import { 打击感, 波次曲线, 音效氛围 } from './config/gameplay.js';
 import { playHeartbeat } from './audio.js';
 
@@ -60,6 +61,18 @@ const level = new Level(scene, { shadowMapSize: quality.params.shadowMapSize });
 // 阶段4：动态光（玩家头灯 + 枪口/爆炸临时光对象池）+ 丧尸红眼实例场
 const dynamicLights = new DynamicLights(scene, camera, quality.params);
 const eyeField = new EyeField(scene, 64);
+
+// 阶段8（轻量）：给地面贴代码生成的细节法线（不加面数/不加 draw call）
+if (GFX.PBR贴图 && level.ground) {
+  try {
+    const detail = makeDetailNormal(256);
+    detail.repeat.set(48, 48);   // 大量平铺，颗粒才细
+    level.ground.material.normalMap = detail;
+    level.ground.material.normalScale.set(0.6, 0.6);
+    level.ground.material.roughness = 0.95;
+    level.ground.material.needsUpdate = true;
+  } catch (e) { console.warn('地面细节法线生成失败，跳过:', e); }
+}
 
 // 画质档变化时：调雾密度 + 阴影分辨率 + 后处理 + 头灯投影
 onQualityChange = (p) => {
