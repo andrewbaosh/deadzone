@@ -15,6 +15,8 @@ import { StatsPanel } from './graphics/StatsPanel.js';
 import { GFX, 色卡 } from './config/graphics.js';
 import { setupAtmosphere, setFogDensity } from './graphics/atmosphere.js';
 import { PostFX } from './graphics/PostFX.js';
+import { DynamicLights } from './graphics/DynamicLights.js';
+import { EyeField } from './graphics/EyeField.js';
 import { 打击感 } from './config/gameplay.js';
 import { playHeartbeat } from './audio.js';
 
@@ -54,7 +56,11 @@ window.addEventListener('resize', () => {
 /* ============ 游戏对象 ============ */
 const level = new Level(scene, { shadowMapSize: quality.params.shadowMapSize });
 
-// 画质档变化时：调雾密度 + 阴影分辨率 + 后处理开关
+// 阶段4：动态光（玩家头灯 + 枪口/爆炸临时光对象池）+ 丧尸红眼实例场
+const dynamicLights = new DynamicLights(scene, camera, quality.params);
+const eyeField = new EyeField(scene, 64);
+
+// 画质档变化时：调雾密度 + 阴影分辨率 + 后处理 + 头灯投影
 onQualityChange = (p) => {
   setFogDensity(scene, p.fogDensity);
   if (level.sun) {
@@ -62,6 +68,7 @@ onQualityChange = (p) => {
     if (level.sun.shadow.map) { level.sun.shadow.map.dispose(); level.sun.shadow.map = null; }
   }
   if (typeof postfx !== 'undefined') postfx.rebuild(p);   // 重建效果链以匹配新档位
+  dynamicLights.applyTier(p);
 };
 const player = new Player(camera, level);
 const weapons = new WeaponSystem(camera, scene);
@@ -669,6 +676,8 @@ function frame() {
     if (shot) {
       if (shot.rocket) spawnRocket(shot);
       else processShot(shot);
+      // 枪口火光：从对象池借一盏暖光照亮周围
+      dynamicLights.muzzleFlash(muzzlePos());
       // 开火轻微抖屏（火箭的抖动在爆炸时另算）
       if (打击感.镜头抖动 && !shot.rocket) addShake(0.014 * (weapons.cfg.后坐力 || 2) * 打击感.抖动强度);
     }
@@ -701,6 +710,8 @@ function frame() {
     updateWaves(dt);
     extraction.update(dt);
     updateWaypoint();
+    dynamicLights.update(dt);
+    eyeField.update(enemies);
     effects.update(dt);
     updateHUD(dt);
   }
@@ -812,6 +823,17 @@ window.__game = {
   },
   get debrisActive() { return effects.debrisState ? effects.debrisState.filter((s) => s.active).length : 0; },
   get hitstop() { return hitstopTimer; },
+  get eyeCount() { return eyeField.mesh.count; },
+  spawnAhead(n = 6, dist = 12) {
+    const fwd = new THREE.Vector3(); camera.getWorldDirection(fwd); fwd.y = 0; fwd.normalize();
+    const right = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0, 1, 0)).normalize();
+    for (let i = 0; i < n; i++) {
+      const off = (i - (n - 1) / 2) * 2.2;
+      const pos = player.pos.clone().addScaledVector(fwd, dist).addScaledVector(right, off); pos.y = 0;
+      enemies.push(new Enemy(scene, pos, Math.max(1, wave || 1)));
+    }
+    return enemies.length;
+  },
   // 只初始化音频、加载采样，不放音乐（测试用，保持静音）
   initAudioNoMusic() { initAudio(); resumeAudio(); const a = getAudio(); if (a) a.master.gain.value = 0; },
   soundState() { return _soundState(); },

@@ -91,3 +91,14 @@
 - **自测**：ok=true 无 error；碎片/顿帧脚本验证通过。截图 `stage3.png`、`stage3-debris.png`(+100 击杀反馈)。
 - **性能**：LOW **66** call（碎片池 +1，<80 ✅）。
 - **给你早上的问题**：无。顿帧时长/抖动强度/各开关都在 `gameplay.js` 的 `打击感` 里。
+
+### 阶段4 · 动态光效 ✅（画面+玩法交汇）
+- **做了什么**：
+  - **玩家头灯**（`DynamicLights.js`）：跟随相机的 SpotLight(#fff4e0)，形成"黑暗一束光"构图，近处丧尸被照亮、远处只剩红眼。HIGH 投影(1024)，MED/LOW 只留光锥不投影。
+  - **枪口火光对象池**：8 盏 PointLight 池化，开火时借一盏(#ffaa44, 强度8, 寿命50ms)照亮周围，用完归还——渲染循环内**不 new 光源**，符合预算。
+  - **丧尸红眼**（`EyeField.js`）：所有丧尸眼睛用**一个 InstancedMesh** 渲染(1 draw call)，每帧按存活丧尸头部世界位置+朝向写入；材质 `toneMapped:false` 保持高亮被 Bloom 点亮。实测 6 丧尸→12 眼、无报错。替代了原来每只 2 个 eye mesh（顺带省 draw call）。
+- **改了哪些文件**：新增 `DynamicLights.js`、`EyeField.js`；改 `enemy.js`(移除各自 eye mesh)、`main.js`(接入头灯/枪口光/眼场、onQualityChange 头灯投影)。丧尸 AI/碰撞未动。
+- **自测**：ok=true 无 error；eyeCount=12 正确；截图 `stage4.png`(头灯光锥)、`stage4-eyes.png`(一排丧尸+红眼，恐怖构图成立)。
+- **性能**：LOW **58** / MED **91**（均达标）/ HIGH **169**（仍 >150）。
+  - HIGH 高是因为：未实例化的丧尸身体在 主渲染+月光阴影+头灯阴影+AO深度 共 4 个 pass 各画一遍。**阶段5 丧尸身体实例化后会一次性砍掉所有 pass 的这部分**，届时 HIGH 应回落到 150 内。
+- **给你早上的问题**：无。头灯太亮/太暗可调 `DynamicLights.js` 里 SpotLight 的强度(45)与距离(34)。

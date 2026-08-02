@@ -72,11 +72,7 @@ export class Enemy {
     // 头
     this.head = new THREE.Mesh(new THREE.BoxGeometry(0.34 * s, 0.34 * s, 0.34 * s), headMat);
     this.head.position.y = 1.6 * s;
-    // 眼睛（发光小方块，暗处能看见）
-    const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff3020 });
-    const eyeGeo = new THREE.BoxGeometry(0.07 * s, 0.05 * s, 0.02 * s);
-    const eyeL = new THREE.Mesh(eyeGeo, eyeMat); eyeL.position.set(-0.09 * s, 1.62 * s, 0.18 * s);
-    const eyeR = new THREE.Mesh(eyeGeo, eyeMat); eyeR.position.set(0.09 * s, 1.62 * s, 0.18 * s);
+    // 眼睛由 EyeField(InstancedMesh) 统一渲染，这里不再各自建 mesh
     // 腿
     const legGeo = new THREE.BoxGeometry(0.2 * s, 0.62 * s, 0.22 * s);
     this.legL = new THREE.Mesh(legGeo, bodyMat); this.legL.position.set(-0.15 * s, 0.31 * s, 0);
@@ -92,7 +88,6 @@ export class Enemy {
       m.castShadow = true;
       this.root.add(m);
     }
-    this.root.add(eyeL, eyeR);
 
     this.root.traverse((o) => { if (o.isMesh) o.userData.enemy = this; });
 
