@@ -12,7 +12,8 @@ import { initMusic, startMusic, stopMusic, toggleMusic, setIntensity, isMusicOn,
 import { 声音 } from './config.js';
 import { QualityManager } from './graphics/QualityManager.js';
 import { StatsPanel } from './graphics/StatsPanel.js';
-import { GFX } from './config/graphics.js';
+import { GFX, 色卡 } from './config/graphics.js';
+import { setupAtmosphere, setFogDensity } from './graphics/atmosphere.js';
 
 /* ============ 渲染基础 ============ */
 const canvas = document.getElementById('game');
@@ -29,8 +30,8 @@ let onQualityChange = () => {};
 const quality = new QualityManager(renderer, (p, tier) => onQualityChange(p, tier));
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x0d1017);
-if (画面.雾) scene.fog = new THREE.Fog(画面.雾颜色, 画面.雾远近[0], 画面.雾远近[1]);
+// 阶段1：色调映射 + 夜色背景 + 指数雾（按当前画质档的雾密度）
+setupAtmosphere(renderer, scene, quality.params);
 
 const camera = new THREE.PerspectiveCamera(手感.视野角度, window.innerWidth / window.innerHeight, 0.05, 400);
 scene.add(camera);   // 相机进场景，好挂枪模型
@@ -42,7 +43,16 @@ window.addEventListener('resize', () => {
 });
 
 /* ============ 游戏对象 ============ */
-const level = new Level(scene);
+const level = new Level(scene, { shadowMapSize: quality.params.shadowMapSize });
+
+// 画质档变化时：调雾密度 + 阴影分辨率
+onQualityChange = (p) => {
+  setFogDensity(scene, p.fogDensity);
+  if (level.sun) {
+    level.sun.shadow.mapSize.set(p.shadowMapSize, p.shadowMapSize);
+    if (level.sun.shadow.map) { level.sun.shadow.map.dispose(); level.sun.shadow.map = null; }
+  }
+};
 const player = new Player(camera, level);
 const weapons = new WeaponSystem(camera, scene);
 const effects = new Effects(scene, camera);

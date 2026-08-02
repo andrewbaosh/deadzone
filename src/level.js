@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { 画面 } from './config.js';
+import { 色卡 } from './config/graphics.js';
 
 /**
  * 关卡：一个带掩体的废弃厂区。
@@ -8,12 +9,14 @@ import { 画面 } from './config.js';
  */
 
 export class Level {
-  constructor(scene) {
+  constructor(scene, opts = {}) {
     this.scene = scene;
     this.colliders = [];      // {min:Vector3, max:Vector3}
     this.hitMeshes = [];      // 子弹能打中的静态物体
     this.spawnPoints = [];
     this.size = 46;           // 场地半径（正方形半边长）
+    this.shadowMapSize = opts.shadowMapSize || 2048;
+    this.sun = null;          // 月光方向光（供画质切换时调整阴影分辨率）
     this.build();
   }
 
@@ -135,35 +138,29 @@ export class Level {
   }
 
   buildLights() {
-    this.scene.add(new THREE.HemisphereLight(0x8899bb, 0x2a2a30, 0.55));
+    // 半球光：上冷 / 下暗（夜色）
+    this.scene.add(new THREE.HemisphereLight(色卡.半球上, 色卡.半球下, 0.5));
+    // 极弱环境光补一点暗部细节
+    this.scene.add(new THREE.AmbientLight(色卡.半球上, 0.12));
 
-    const sun = new THREE.DirectionalLight(0xffe9c4, 1.35);
-    sun.position.set(28, 42, 18);
-    if (画面.阴影) {
-      sun.castShadow = true;
-      sun.shadow.mapSize.set(2048, 2048);
-      const d = 55;
-      sun.shadow.camera.left = -d;
-      sun.shadow.camera.right = d;
-      sun.shadow.camera.top = d;
-      sun.shadow.camera.bottom = -d;
-      sun.shadow.camera.far = 140;
-      sun.shadow.bias = -0.0006;
-      sun.shadow.normalBias = 0.02;
-    }
+    // 月光主方向光（冷蓝），从高处斜射，收紧阴影相机不漏光不悬浮
+    const sun = new THREE.DirectionalLight(色卡.月光, 1.5);
+    sun.position.set(34, 58, 20);
+    sun.target.position.set(0, 0, 0);
+    this.scene.add(sun.target);
+    sun.castShadow = true;               // 是否真出阴影由 renderer.shadowMap.enabled（画质档）控制
+    sun.shadow.mapSize.set(this.shadowMapSize, this.shadowMapSize);
+    const d = 42;                        // 收紧到场地范围，提升阴影分辨率
+    sun.shadow.camera.left = -d;
+    sun.shadow.camera.right = d;
+    sun.shadow.camera.top = d;
+    sun.shadow.camera.bottom = -d;
+    sun.shadow.camera.near = 1;
+    sun.shadow.camera.far = 140;
+    sun.shadow.bias = -0.0004;
+    sun.shadow.normalBias = 0.03;        // 防自阴影/漏光
     this.scene.add(sun);
-
-    // 几盏彩色补光，让场地有层次
-    const fills = [
-      [0x3366ff, -22, 6, -20],
-      [0xff5533, 20, 6, 22],
-      [0x33ff99, 0, 8, 0],
-    ];
-    for (const [c, x, y, z] of fills) {
-      const p = new THREE.PointLight(c, 28, 40, 2);
-      p.position.set(x, y, z);
-      this.scene.add(p);
-    }
+    this.sun = sun;
   }
 
   /** 玩家出生位置 */
