@@ -1,41 +1,47 @@
 import * as THREE from 'three';
 import { 敌人 as CFG } from './config.js';
 import { playGrowl, playDeath } from './audio.js';
-import { 打击感 } from './config/gameplay.js';
+import { 打击感, 丧尸种类 } from './config/gameplay.js';
 
 /**
  * 丧尸。低多边形人形，分头/身两个受击部位。
  * 会朝玩家走、绕开障碍、靠近后攻击。被打中会闪红+击退。
  */
 
-const TYPES = {
-  普通: { colorBody: 0x4a7a3a, colorHead: 0x6a9a5a, hpMul: 1, spdMul: 1, dmgMul: 1, scale: 1 },
-  快速: { colorBody: 0x8a7a2a, colorHead: 0xb0a040, hpMul: 0.55, spdMul: 1.75, dmgMul: 0.8, scale: 0.9 },
-  重型: { colorBody: 0x5a2a2a, colorHead: 0x7a3a3a, hpMul: 3.2, spdMul: 0.6, dmgMul: 1.8, scale: 1.35 },
-};
+// 按权重从"当前波数已解锁的类型"里随机挑一种
+function pickType(wave) {
+  const avail = Object.entries(丧尸种类).filter(([, v]) => wave >= (v.出现波数 || 1));
+  const total = avail.reduce((s, [, v]) => s + (v.权重 || 0), 0) || 1;
+  let r = Math.random() * total;
+  for (const [k, v] of avail) { r -= (v.权重 || 0); if (r <= 0) return k; }
+  return '普通';
+}
 
 export class Enemy {
-  constructor(scene, spawnPos, wave) {
+  constructor(scene, spawnPos, wave, forcedType) {
     this.scene = scene;
     this.dead = false;
     this.wave = wave;
 
-    // 决定类型
-    let type = '普通';
-    const r = Math.random();
-    if (wave >= CFG.重型出现波数 && r < 0.18) type = '重型';
-    else if (wave >= CFG.快速型出现波数 && r < 0.5) type = '快速';
-    this.type = type;
-    const T = TYPES[type];
+    // 决定类型（数值集中在 gameplay.js 的 丧尸种类）
+    const typeName = forcedType && 丧尸种类[forcedType] ? forcedType : pickType(wave);
+    this.type = typeName;
+    const cfg = 丧尸种类[typeName];
+    const T = { colorBody: cfg.身色, colorHead: cfg.头色 };
 
     const waveHp = CFG.生命 * Math.pow(CFG.每波生命倍率, wave - 1);
-    this.maxHp = waveHp * T.hpMul;
+    this.maxHp = waveHp * cfg.血量倍率;
     this.hp = this.maxHp;
 
     const waveSpd = CFG.速度 * Math.pow(CFG.每波速度倍率, wave - 1);
-    this.speed = Math.min(CFG.速度上限, waveSpd * T.spdMul);
-    this.damage = CFG.攻击伤害 * T.dmgMul;
-    this.scaleFactor = CFG.体型 * T.scale;
+    this.speed = Math.min(CFG.速度上限, waveSpd * cfg.速度倍率);
+    this.damage = CFG.攻击伤害 * cfg.伤害倍率;
+    this.scaleFactor = CFG.体型 * cfg.体型;
+
+    // 自爆尸（爆炸型死亡时范围伤害）
+    this.selfDestruct = !!cfg.自爆;
+    this.blastRange = cfg.自爆范围 || 0;
+    this.blastDmg = cfg.自爆伤害 || 0;
 
     this.attackTimer = 0;
     this.growlTimer = Math.random() * 4;

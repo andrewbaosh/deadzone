@@ -17,7 +17,7 @@ import { setupAtmosphere, setFogDensity } from './graphics/atmosphere.js';
 import { PostFX } from './graphics/PostFX.js';
 import { DynamicLights } from './graphics/DynamicLights.js';
 import { EyeField } from './graphics/EyeField.js';
-import { 打击感 } from './config/gameplay.js';
+import { 打击感, 波次曲线 } from './config/gameplay.js';
 import { playHeartbeat } from './audio.js';
 
 /* ============ 渲染基础 ============ */
@@ -266,11 +266,14 @@ function startNextWave() {
   wave++;
   waveActive = true;
   killsThisWave = 0;
-  const count = Math.round(波次.第一波数量 + (wave - 1) * 波次.每波增加);
+  let count = Math.round(波次.第一波数量 + (wave - 1) * 波次.每波增加);
+  // 波次曲线：每隔几波来一次小高潮（数量激增）
+  const isElite = 波次曲线.启用扩展曲线 && wave % 波次曲线.精英波间隔 === 0;
+  if (isElite) count = Math.round(count * 波次曲线.精英波数量倍率);
   toSpawn = count;
   spawnTimer = 0;
   playWaveStart();
-  flashWaveBanner(`第 ${wave} 波`);
+  flashWaveBanner(isElite ? `⚠ 第 ${wave} 波 · 尸潮！` : `第 ${wave} 波`);
 }
 
 let waveEnemyTotal = 0;
@@ -696,6 +699,16 @@ function frame() {
     // 敌人
     for (let i = enemies.length - 1; i >= 0; i--) {
       const en = enemies[i];
+      // 自爆尸死亡范围伤害（死亡瞬间触发一次）
+      if (en.dead && en.selfDestruct && !en._blasted) {
+        en._blasted = true;
+        const p = en.root.position;
+        effects.addExplosion(p, en.blastRange);
+        playExplosion();
+        if (打击感.镜头抖动) addShake(0.3 * 打击感.抖动强度);
+        const pd = player.pos.distanceTo(p);
+        if (pd < en.blastRange && player.alive) damagePlayer(en.blastDmg * (1 - pd / en.blastRange), time);
+      }
       const res = en.update(simDt, player.pos, level, enemies, i);
       if (res === false) { en.remove(); enemies.splice(i, 1); continue; }
       if (res && res.didAttack > 0) damagePlayer(res.didAttack, time);
@@ -824,6 +837,16 @@ window.__game = {
   get debrisActive() { return effects.debrisState ? effects.debrisState.filter((s) => s.active).length : 0; },
   get hitstop() { return hitstopTimer; },
   get eyeCount() { return eyeField.mesh.count; },
+  spawnType(type, n = 4, dist = 10) {
+    const fwd = new THREE.Vector3(); camera.getWorldDirection(fwd); fwd.y = 0; fwd.normalize();
+    const right = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0, 1, 0)).normalize();
+    for (let i = 0; i < n; i++) {
+      const off = (i - (n - 1) / 2) * 2.4;
+      const pos = player.pos.clone().addScaledVector(fwd, dist).addScaledVector(right, off); pos.y = 0;
+      enemies.push(new Enemy(scene, pos, 9, type));
+    }
+    return enemies.map((e) => e.type);
+  },
   spawnAhead(n = 6, dist = 12) {
     const fwd = new THREE.Vector3(); camera.getWorldDirection(fwd); fwd.y = 0; fwd.normalize();
     const right = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0, 1, 0)).normalize();
