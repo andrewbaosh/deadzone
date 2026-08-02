@@ -385,6 +385,24 @@ export function playExplosion() {
   }
 }
 
+/** 低血量心跳（两下"咚·咚"） */
+export function playHeartbeat() {
+  if (!ctx) return;
+  const t = now();
+  for (const off of [0, 0.16]) {
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(70, t + off);
+    o.frequency.exponentialRampToValueAtTime(38, t + off + 0.14);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t + off);
+    g.gain.linearRampToValueAtTime(off === 0 ? 0.5 : 0.34, t + off + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + off + 0.16);
+    o.connect(g).connect(master);
+    o.start(t + off); o.stop(t + off + 0.18);
+  }
+}
+
 /** 新一波开始的警报 */
 export function playWaveStart() {
   if (!ctx) return;

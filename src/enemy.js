@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { 敌人 as CFG } from './config.js';
 import { playGrowl, playDeath } from './audio.js';
+import { 打击感 } from './config/gameplay.js';
 
 /**
  * 丧尸。低多边形人形，分头/身两个受击部位。
@@ -121,7 +122,7 @@ export class Enemy {
     if (this.dead) return false;
     this.hp -= dmg;
     this.hurtFlash = 0.12;
-    this.knockback.addScaledVector(fromDir, Math.min(3.2, dmg * 0.05));
+    if (打击感.击退) this.knockback.addScaledVector(fromDir, Math.min(3.2, dmg * 0.05) * 打击感.击退强度);
 
     this.hpBar.visible = true;
     this.hpBarBg.visible = true;
@@ -140,6 +141,10 @@ export class Enemy {
     this.deathTimer = 0.6;
     this.hpBar.visible = false;
     this.hpBarBg.visible = false;
+    // 死亡碎裂碎片（用身体颜色）
+    if (effects && 打击感.死亡碎裂粒子) {
+      effects.addDebris(this.root.position, this.bodyMat.color.getHex(), Math.round(11 * this.scaleFactor));
+    }
   }
 
   /**
@@ -231,8 +236,10 @@ export class Enemy {
     if (this.hurtFlash > 0) {
       this.hurtFlash -= dt;
       const f = Math.max(0, this.hurtFlash / 0.12);
-      this.bodyMat.emissive.setRGB(f, 0, 0);
-      this.headMat.emissive.setRGB(f, 0, 0);
+      // 受击瞬间偏白热，随后回落到红（更有打击感）
+      const g = 打击感.受击闪白 ? f * 0.6 : 0;
+      this.bodyMat.emissive.setRGB(f, g, g * 0.9);
+      this.headMat.emissive.setRGB(f, g, g * 0.9);
     }
 
     const pos = this.root.position;

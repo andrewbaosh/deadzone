@@ -34,6 +34,82 @@ export class Effects {
     this.floaters = [];
     this.floaterLayer = document.getElementById('floaters');
     this._v = new THREE.Vector3();
+
+    // --- 死亡碎裂碎片（InstancedMesh 对象池，全程只一个 draw call）---
+    this.initDebris(160);
+  }
+
+  initDebris(count) {
+    this.debrisCap = count;
+    this.debrisGeo = new THREE.BoxGeometry(0.11, 0.11, 0.11);
+    this.debrisMat = new THREE.MeshStandardMaterial({ roughness: 0.9, metalness: 0 });
+    this.debris = new THREE.InstancedMesh(this.debrisGeo, this.debrisMat, count);
+    this.debris.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.debris.count = count;
+    this.debris.frustumCulled = false;
+    this.debris.castShadow = false;
+    // 每片状态
+    this.debrisState = new Array(count);
+    for (let i = 0; i < count; i++) {
+      this.debrisState[i] = { active: false, pos: new THREE.Vector3(), vel: new THREE.Vector3(), rot: new THREE.Euler(), spin: new THREE.Vector3(), life: 0, maxLife: 1, scale: 1 };
+    }
+    this._dummy = new THREE.Object3D();
+    this._hidden = new THREE.Object3D();
+    this._hidden.scale.setScalar(0.0001);
+    this._hidden.updateMatrix();
+    // 初始全部藏起来
+    for (let i = 0; i < count; i++) this.debris.setMatrixAt(i, this._hidden.matrix);
+    this.debris.instanceMatrix.needsUpdate = true;
+    this._debrisNext = 0;
+    this.scene.add(this.debris);
+  }
+
+  /** 在 pos 迸发 count 片碎片，颜色 color。cap 限制单次数量。 */
+  addDebris(pos, color = 0x4a7a3a, count = 12) {
+    if (!this.debris) return;
+    const c = new THREE.Color(color);
+    for (let n = 0; n < count; n++) {
+      const i = this._debrisNext;
+      this._debrisNext = (this._debrisNext + 1) % this.debrisCap;
+      const s = this.debrisState[i];
+      s.active = true;
+      s.pos.copy(pos).add(new THREE.Vector3((Math.random() - 0.5) * 0.4, Math.random() * 0.9 + 0.3, (Math.random() - 0.5) * 0.4));
+      s.vel.set((Math.random() - 0.5) * 5, 2 + Math.random() * 5, (Math.random() - 0.5) * 5);
+      s.spin.set((Math.random() - 0.5) * 12, (Math.random() - 0.5) * 12, (Math.random() - 0.5) * 12);
+      s.rot.set(Math.random() * 6, Math.random() * 6, Math.random() * 6);
+      s.maxLife = 0.7 + Math.random() * 0.6;
+      s.life = s.maxLife;
+      s.scale = 0.6 + Math.random() * 0.8;
+      this.debris.setColorAt(i, c);
+    }
+    if (this.debris.instanceColor) this.debris.instanceColor.needsUpdate = true;
+  }
+
+  updateDebris(dt) {
+    if (!this.debris) return;
+    let any = false;
+    for (let i = 0; i < this.debrisCap; i++) {
+      const s = this.debrisState[i];
+      if (!s.active) continue;
+      any = true;
+      s.life -= dt;
+      if (s.life <= 0) {
+        s.active = false;
+        this.debris.setMatrixAt(i, this._hidden.matrix);
+        continue;
+      }
+      s.vel.y -= 14 * dt;
+      s.pos.addScaledVector(s.vel, dt);
+      if (s.pos.y < 0.05) { s.pos.y = 0.05; s.vel.y *= -0.35; s.vel.x *= 0.7; s.vel.z *= 0.7; }
+      s.rot.x += s.spin.x * dt; s.rot.y += s.spin.y * dt; s.rot.z += s.spin.z * dt;
+      const k = Math.min(1, s.life / 0.25);   // 最后 0.25s 缩小消失
+      this._dummy.position.copy(s.pos);
+      this._dummy.rotation.copy(s.rot);
+      this._dummy.scale.setScalar(s.scale * k);
+      this._dummy.updateMatrix();
+      this.debris.setMatrixAt(i, this._dummy.matrix);
+    }
+    if (any) this.debris.instanceMatrix.needsUpdate = true;
   }
 
   /** 火箭爆炸：火球 + 地面冲击波环 + 闪光 + 火花 */
@@ -132,6 +208,8 @@ export class Effects {
   }
 
   update(dt) {
+    this.updateDebris(dt);
+
     // 曳光弹
     for (let i = this.tracers.length - 1; i >= 0; i--) {
       const t = this.tracers[i];

@@ -15,6 +15,8 @@ import { StatsPanel } from './graphics/StatsPanel.js';
 import { GFX, 色卡 } from './config/graphics.js';
 import { setupAtmosphere, setFogDensity } from './graphics/atmosphere.js';
 import { PostFX } from './graphics/PostFX.js';
+import { 打击感 } from './config/gameplay.js';
+import { playHeartbeat } from './audio.js';
 
 /* ============ 渲染基础 ============ */
 const canvas = document.getElementById('game');
@@ -71,6 +73,8 @@ let enemies = [];
 let rockets = [];
 let staticHitList = level.hitMeshes.slice();   // 环境可命中物
 let shakeAmount = 0;                            // 屏幕震动强度
+let hitstopTimer = 0;                           // 命中顿帧（微时停）
+let heartbeatTimer = 0;                         // 低血心跳计时
 
 /* ============ 游戏状态 ============ */
 const STATE = { MENU: 0, PLAYING: 1, DEAD: 2, WIN: 3 };
@@ -554,6 +558,8 @@ function onKill(en, isHead) {
     isHead ? `爆头 +${gained}` : `+${gained}`,
     isHead ? 'headshot' : 'kill'
   );
+  // 击杀顿帧（微时停），爆头更久一点
+  if (打击感.受击顿帧) hitstopTimer = Math.max(hitstopTimer, (打击感.顿帧毫秒 / 1000) * (isHead ? 1.5 : 1));
 }
 
 /* ============ 命中标记 ============ */
@@ -570,6 +576,8 @@ function damagePlayer(dmg, time) {
   player.takeDamage(dmg, time);
   playPlayerHurt();
   damageFlashTimer = 0.4;
+  // 被咬抖屏（强度随伤害）
+  if (打击感.镜头抖动) addShake(Math.min(0.35, 0.06 + dmg * 0.006) * 打击感.抖动强度);
   if (!player.alive) onPlayerDeath();
 }
 
@@ -619,9 +627,13 @@ function frame() {
     hud.crosshair.style.visibility = scoped ? 'hidden' : 'visible';
     weapons.viewGroup.visible = !scoped;
 
-    // 后坐力叠加到视角
-    player.extraPitch = weapons.recoilPitch;
-    player.extraYaw = weapons.recoilYaw;
+    // 命中顿帧：微时停，让打击更有分量（只减慢模拟，不影响镜头灵敏度）
+    const simDt = hitstopTimer > 0 ? dt * 0.06 : dt;
+    hitstopTimer = Math.max(0, hitstopTimer - dt);
+
+    // 后坐力叠加到视角（可在 gameplay 配置里关）
+    player.extraPitch = 打击感.后坐力镜头 ? weapons.recoilPitch : 0;
+    player.extraYaw = 打击感.后坐力镜头 ? weapons.recoilYaw : 0;
 
     // 背景音乐强度：交战/撤离时高，休息时低沉
     if (extractionActive) {
@@ -642,7 +654,7 @@ function frame() {
     player.sensScale = camera.fov / 手感.视野角度;
     player.speedScale = scoped ? (weapons.cfg.开镜移速倍率 ?? 0.5) : 1;
 
-    player.update(dt, time);
+    player.update(simDt, time);
 
     // 屏幕震动（在相机定位之后叠加抖动）
     if (shakeAmount > 0.001) {
@@ -653,16 +665,18 @@ function frame() {
     }
 
     const moving = (Math.abs(player.vel.x) + Math.abs(player.vel.z)) > 0.6;
-    const shot = weapons.update(dt, moving, aiming);
+    const shot = weapons.update(simDt, moving, aiming);
     if (shot) {
       if (shot.rocket) spawnRocket(shot);
       else processShot(shot);
+      // 开火轻微抖屏（火箭的抖动在爆炸时另算）
+      if (打击感.镜头抖动 && !shot.rocket) addShake(0.014 * (weapons.cfg.后坐力 || 2) * 打击感.抖动强度);
     }
 
     // 火箭飞行 + 爆炸
     for (let i = rockets.length - 1; i >= 0; i--) {
       const r = rockets[i];
-      const res = r.update(dt, enemies);
+      const res = r.update(simDt, enemies);
       if (res && res.explode) {
         explode(res.point, res.direct, time);
         r.remove();
@@ -673,7 +687,7 @@ function frame() {
     // 敌人
     for (let i = enemies.length - 1; i >= 0; i--) {
       const en = enemies[i];
-      const res = en.update(dt, player.pos, level, enemies, i);
+      const res = en.update(simDt, player.pos, level, enemies, i);
       if (res === false) { en.remove(); enemies.splice(i, 1); continue; }
       if (res && res.didAttack > 0) damagePlayer(res.didAttack, time);
       en.faceBar(camera);
@@ -709,10 +723,13 @@ function updateHUD(dt) {
   hud.kills.textContent = kills;
   hud.enemiesLeft.textContent = extractionActive ? aliveCount() : (waveActive ? (aliveCount() + toSpawn) : 0);
 
-  // 准星扩散
+  // 准星扩散（命中时整体弹一下变亮）
   const spread = weapons.currentSpread() + weapons.recoilPitch * 60;
   const size = 准星.基础大小 + Math.min(准星.最大扩散, spread * 3);
   hud.crosshair.style.setProperty('--gap', `${size}px`);
+  const pop = 打击感.准星命中反馈 && hitmarkerTimer > 0 ? (hitmarkerTimer / 0.12) : 0;
+  hud.crosshair.style.transform = `translate(-50%,-50%) scale(${1 + pop * 0.5})`;
+  hud.crosshair.style.filter = pop > 0 ? `brightness(${1 + pop * 1.5})` : '';
 
   // 命中标记淡出
   if (hitmarkerTimer > 0) {
@@ -720,15 +737,25 @@ function updateHUD(dt) {
     hud.hitmarker.style.opacity = String(Math.max(0, hitmarkerTimer / 0.12));
   }
 
-  // 受伤红晕
-  if (damageFlashTimer > 0) {
-    damageFlashTimer -= dt;
-    hud.damageVignette.style.opacity = String(Math.min(0.85, damageFlashTimer * 2));
-  } else {
-    // 低血量常驻红晕
-    const lowHp = player.hp / player.maxHp < 0.3 ? (0.3 - player.hp / player.maxHp) * 2 : 0;
-    hud.damageVignette.style.opacity = String(lowHp);
+  // 低血量心跳（音效 + 画面脉动）
+  const hp01 = player.hp / player.maxHp;
+  let pulse = 0;
+  if (打击感.低血心跳 && player.alive && hp01 < 打击感.低血阈值) {
+    const severity = 1 - hp01 / 打击感.低血阈值;         // 越低越强
+    heartbeatTimer -= dt;
+    if (heartbeatTimer <= 0) { playHeartbeat(); heartbeatTimer = 1.15 - severity * 0.5; }
+    pulse = (0.5 + 0.5 * Math.sin(clock.elapsedTime * 6)) * severity * 0.5;
   }
+
+  // 受伤红晕（被打闪红 + 低血常驻/脉动，取较大值）
+  let vig = pulse;
+  if (打击感.受伤血迹 && damageFlashTimer > 0) {
+    damageFlashTimer -= dt;
+    vig = Math.max(vig, Math.min(0.85, damageFlashTimer * 2));
+  } else if (hp01 < 0.3) {
+    vig = Math.max(vig, (0.3 - hp01) * 2);
+  }
+  hud.damageVignette.style.opacity = String(vig);
 }
 
 /* ============ 启动 ============ */
@@ -776,6 +803,15 @@ window.__game = {
     return enemies.length;
   },
   setTier(t) { quality.setTier(t); },
+  testKill() {
+    let n = 0;
+    for (const en of enemies) {
+      if (!en.dead) { en.takeDamage(9999, new THREE.Vector3(0, 0, 1), effects, en.root.position.clone()); onKill(en, false); n++; }
+    }
+    return n;
+  },
+  get debrisActive() { return effects.debrisState ? effects.debrisState.filter((s) => s.active).length : 0; },
+  get hitstop() { return hitstopTimer; },
   // 只初始化音频、加载采样，不放音乐（测试用，保持静音）
   initAudioNoMusic() { initAudio(); resumeAudio(); const a = getAudio(); if (a) a.master.gain.value = 0; },
   soundState() { return _soundState(); },
