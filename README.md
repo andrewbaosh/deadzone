@@ -82,6 +82,7 @@ npm run dev
 | `src/extraction.js` | 撤离点（光柱、光环、灯光） |
 | `src/level.js` | 地图（掩体、墙、油桶） |
 | `src/music.js` | 背景音乐（代码合成的电子乐） |
+| `public/sounds/` | 真实枪械/爆炸音效（来源与授权见其中 CREDITS.md） |
 | `src/effects.js` | 弹孔、火花、飘字特效 |
 | `src/audio.js` | 声音（全部代码合成，没有音频文件） |
 

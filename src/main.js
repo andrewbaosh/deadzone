@@ -7,7 +7,7 @@ import { Enemy } from './enemy.js';
 import { Effects } from './effects.js';
 import { Extraction } from './extraction.js';
 import { Rocket } from './rocket.js';
-import { initAudio, resumeAudio, playWaveStart, playPlayerHurt, playExplosion } from './audio.js';
+import { initAudio, resumeAudio, playWaveStart, playPlayerHurt, playExplosion, getAudio, _soundState } from './audio.js';
 import { initMusic, startMusic, stopMusic, toggleMusic, setIntensity, isMusicOn, _debug as musicDebug } from './music.js';
 import { 声音 } from './config.js';
 
@@ -722,6 +722,9 @@ window.__game = {
   get weapons() { return weapons; },
   get aiming() { return aiming; },
   setAim(v) { aimToggle = !!v; prevWeaponName = weapons.current; },
+  // 只初始化音频、加载采样，不放音乐（测试用，保持静音）
+  initAudioNoMusic() { initAudio(); resumeAudio(); const a = getAudio(); if (a) a.master.gain.value = 0; },
+  soundState() { return _soundState(); },
   // 从相机方向发射一枚火箭
   spawnRocketFromCamera() {
     const dir = new THREE.Vector3(); camera.getWorldDirection(dir);

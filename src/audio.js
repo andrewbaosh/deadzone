@@ -39,6 +39,8 @@ export function initAudio() {
   wet.gain.value = 0.9;
   conv.connect(wet).connect(master);
   reverbIn = conv;
+
+  loadSounds();   // 后台加载真实枪声采样
 }
 
 /** 生成一段指数衰减的立体声噪声脉冲，给卷积混响用 */
@@ -64,8 +66,70 @@ function sendReverb(node, amt) {
   s.connect(reverbIn);
 }
 
+/* ---------------- 真实录音采样 ---------------- */
+const buffers = {};   // 解码后的 AudioBuffer
+const onsets = {};    // 每个采样的起音时刻（自动跳过前面的静音）
+
+const SOUND_FILES = {
+  pistol: '/sounds/pistol.wav',
+  rifle: '/sounds/rifle.ogg',
+  gunshot: '/sounds/gunshot.ogg',
+  sniper: '/sounds/sniper.mp3',
+  rocket: '/sounds/rocket.mp3',      // 火箭发射（长录音，运行时裁剪起音段）
+  explosion: '/sounds/explosion.ogg',
+};
+
+/** 异步加载并解码所有采样；加载完成前 playShot 会自动回退到合成音 */
+function loadSounds() {
+  for (const [key, url] of Object.entries(SOUND_FILES)) {
+    fetch(url)
+      .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(r.status)))
+      .then((ab) => ctx.decodeAudioData(ab))
+      .then((buf) => { buffers[key] = buf; onsets[key] = detectOnset(buf); })
+      .catch(() => { /* 加载失败就用合成音，无所谓 */ });
+  }
+}
+
+/** 找到采样里第一个明显的声音（跳过录音开头的静音） */
+function detectOnset(buf) {
+  const d = buf.getChannelData(0);
+  const thresh = 0.12;
+  const step = Math.max(1, Math.floor(buf.sampleRate / 8000));
+  for (let i = 0; i < d.length; i += step) {
+    if (Math.abs(d[i]) > thresh) return Math.max(0, i / buf.sampleRate - 0.006);
+  }
+  return 0;
+}
+
+/**
+ * 播放一段真实采样：从起音处开始、按 rate 调音高、用增益包络裁成 dur 秒
+ * （避免录音里的长尾巴在连发时叠成一团），并送一份到混响。
+ */
+function playBuffer(key, rate, level, verb, dur) {
+  const buf = buffers[key];
+  if (!buf) return false;
+  const t = now();
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  src.playbackRate.value = rate;
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(level, t);
+  g.gain.setValueAtTime(level, t + dur * 0.4);
+  g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
+  src.connect(g).connect(master);
+  sendReverb(g, verb);
+  src.start(t, onsets[key] || 0);
+  src.stop(t + dur + 0.05);
+  return true;
+}
+
 export function resumeAudio() {
   if (ctx && ctx.state === 'suspended') ctx.resume();
+}
+
+/** 调试：哪些采样已加载 + 起音时刻 */
+export function _soundState() {
+  return { loaded: Object.keys(buffers), onsets: { ...onsets }, ctxState: ctx?.state };
 }
 
 export function setVolume(v) {
@@ -94,6 +158,12 @@ function noiseSource(duration, playbackRate = 1) {
  */
 export function playShot(tone) {
   if (!ctx) return;
+
+  // 优先播放真实录音采样；采样没加载好再回退到合成音
+  if (tone.样本 && playBuffer(tone.样本, tone.音高 ?? 1, tone.音量 ?? 0.9, tone.混响 ?? 0.3, tone.长度 ?? 0.25)) {
+    return;
+  }
+
   const t = now();
   const dur = tone.长度 ?? 0.16;
   const bright = tone.亮度 ?? (tone.频率 ? tone.频率 * 6 : 2000);
@@ -238,9 +308,12 @@ export function playDeath() {
   o.start(t); o.stop(t + 0.7);
 }
 
-/** 火箭发射：点火"咚" + 长喷射嘶声（送混响） */
+/** 火箭发射：真实发射录音（裁掉起音后 ~0.8 秒）；没采样时用合成喷射声 */
 export function playRocketFire() {
   if (!ctx) return;
+  // 真实录音的火箭发射；和爆炸是两个完全不同的声音
+  if (playBuffer('rocket', 1.0, 0.95, 0.4, 0.8)) return;
+
   const t = now();
   const out = ctx.createGain(); out.gain.value = 0.9; out.connect(master);
   sendReverb(out, 0.35);
@@ -265,22 +338,28 @@ export function playRocketFire() {
   n.connect(f).connect(ng).connect(out);
 }
 
-/** 爆炸：尖锐炸裂 + 深低频轰 + 碎片噪声 + 长混响回声 */
+/** 爆炸：真实爆炸录音 + 合成深低频胸腔冲击；没采样时全用合成 */
 export function playExplosion() {
   if (!ctx) return;
   const t = now();
+  const usedSample = playBuffer('explosion', 1.0, 1.0, 0.7, 0.9);
+
   const out = ctx.createGain(); out.gain.value = 1.0; out.connect(master);
   sendReverb(out, 0.7);
 
-  // 起始尖锐炸裂
-  const clk = noiseSource(0.03);
-  const cf = ctx.createBiquadFilter(); cf.type = 'highpass'; cf.frequency.value = 1800;
-  const cg = ctx.createGain();
-  cg.gain.setValueAtTime(1.0, t); cg.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
-  clk.connect(cf).connect(cg).connect(out);
+  // 有采样时只补一层深低频让它更有冲击；没采样时补齐尖锐炸裂+碎片声
+  if (!usedSample) {
+    const clk = noiseSource(0.03);
+    const cf = ctx.createBiquadFilter(); cf.type = 'highpass'; cf.frequency.value = 1800;
+    const cg = ctx.createGain();
+    cg.gain.setValueAtTime(1.0, t); cg.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+    clk.connect(cf).connect(cg).connect(out);
+  }
 
   // 深低频轰（两层，一层更低）
-  for (const [f0, f1, lv, len] of [[130, 26, 1.0, 0.75], [70, 20, 0.7, 0.55]]) {
+  const subLevel = usedSample ? 0.55 : 1.0;
+  for (const [f0, f1, lvBase, len] of [[130, 26, subLevel, 0.75], [70, 20, subLevel * 0.7, 0.55]]) {
+    const lv = lvBase;
     const o = ctx.createOscillator();
     o.type = 'sine';
     o.frequency.setValueAtTime(f0, t);
@@ -292,16 +371,18 @@ export function playExplosion() {
     o.start(t); o.stop(t + len + 0.02);
   }
 
-  // 碎片/火焰噪声，低通下扫
-  const n = noiseSource(0.6);
-  const f = ctx.createBiquadFilter();
-  f.type = 'lowpass';
-  f.frequency.setValueAtTime(3000, t);
-  f.frequency.exponentialRampToValueAtTime(180, t + 0.55);
-  const ng = ctx.createGain();
-  ng.gain.setValueAtTime(0.95, t);
-  ng.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
-  n.connect(f).connect(ng).connect(out);
+  // 碎片/火焰噪声（真实采样自带碎裂声，就不再叠了）
+  if (!usedSample) {
+    const n = noiseSource(0.6);
+    const f = ctx.createBiquadFilter();
+    f.type = 'lowpass';
+    f.frequency.setValueAtTime(3000, t);
+    f.frequency.exponentialRampToValueAtTime(180, t + 0.55);
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(0.95, t);
+    ng.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
+    n.connect(f).connect(ng).connect(out);
+  }
 }
 
 /** 新一波开始的警报 */
