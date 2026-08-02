@@ -12,12 +12,13 @@ export class WeaponSystem {
     this.camera = camera;
     this.scene = scene;
 
-    this.slots = ['手枪', '步枪', '霰弹枪', '火箭筒'];
+    this.slots = ['手枪', '步枪', '霰弹枪', '火箭筒', '狙击枪'];
     this.ammo = {};       // 每把枪的当前弹匣/备弹
     for (const k of this.slots) {
       this.ammo[k] = { mag: 武器[k].弹匣, reserve: 武器[k].备弹 };
     }
     this.current = '步枪';
+    this.previous = '手枪';        // 上一把武器（Q 快速切换用）
 
     this.fireCooldown = 0;
     this.reloading = false;
@@ -95,6 +96,7 @@ export class WeaponSystem {
   switchTo(name) {
     if (name === this.current || this.reloading) return;
     if (!this.slots.includes(name)) return;
+    this.previous = this.current;    // 记住上一把
     this.current = name;
     this.fireCooldown = 0.15;
     this.buildViewModel();
@@ -102,6 +104,11 @@ export class WeaponSystem {
 
   switchByIndex(i) {
     if (this.slots[i]) this.switchTo(this.slots[i]);
+  }
+
+  /** CS 风格：快速切回上一把武器 */
+  quickSwitch() {
+    if (this.previous) this.switchTo(this.previous);
   }
 
   startReload() {
@@ -214,6 +221,8 @@ export class WeaponSystem {
     // 扩散：基础 + 移动惩罚，开镜减半
     let spreadDeg = c.扩散 + this.movementFactor * c.移动扩散;
     if (aiming) spreadDeg *= 0.4;
+    // 狙击枪不开镜时腰射极不准，逼你开镜
+    if (c.是狙击 && !aiming) spreadDeg += c.腰射惩罚 ?? 9;
 
     // 计算相机前方
     const camDir = new THREE.Vector3();

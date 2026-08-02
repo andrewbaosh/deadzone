@@ -7,6 +7,7 @@ import { 声音 } from './config.js';
 let ctx = null;
 let master = null;
 let noiseBuffer = null;
+let reverbIn = null;      // 卷积混响输入（枪声/爆炸的环境回声都送这里）
 
 /** 给 music.js 共用同一个音频上下文和总线 */
 export function getAudio() {
@@ -18,13 +19,49 @@ export function initAudio() {
   ctx = new (window.AudioContext || window.webkitAudioContext)();
   master = ctx.createGain();
   master.gain.value = 声音?.总音量 ?? 0.5;
-  master.connect(ctx.destination);
+
+  // 总线上加一点软削波，避免爆炸/齐射时破音
+  const comp = ctx.createDynamicsCompressor();
+  comp.threshold.value = -10; comp.knee.value = 6;
+  comp.ratio.value = 8; comp.attack.value = 0.002; comp.release.value = 0.2;
+  master.connect(comp).connect(ctx.destination);
 
   // 预生成一段白噪声，射击/爆炸都用它
   const len = ctx.sampleRate * 2;
   noiseBuffer = ctx.createBuffer(1, len, ctx.sampleRate);
   const data = noiseBuffer.getChannelData(0);
   for (let i = 0; i < len; i++) data[i] = Math.random() * 2 - 1;
+
+  // 卷积混响：用带衰减的噪声当脉冲响应，模拟废墟里的枪声回响
+  const conv = ctx.createConvolver();
+  conv.buffer = makeImpulseResponse(1.1, 3.2);
+  const wet = ctx.createGain();
+  wet.gain.value = 0.9;
+  conv.connect(wet).connect(master);
+  reverbIn = conv;
+}
+
+/** 生成一段指数衰减的立体声噪声脉冲，给卷积混响用 */
+function makeImpulseResponse(duration, decay) {
+  const rate = ctx.sampleRate;
+  const n = Math.floor(rate * duration);
+  const buf = ctx.createBuffer(2, n, rate);
+  for (let ch = 0; ch < 2; ch++) {
+    const d = buf.getChannelData(ch);
+    for (let i = 0; i < n; i++) {
+      d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / n, decay);
+    }
+  }
+  return buf;
+}
+
+/** 把一个节点按 amt 送入混响 */
+function sendReverb(node, amt) {
+  if (!reverbIn || amt <= 0) return;
+  const s = ctx.createGain();
+  s.gain.value = amt;
+  node.connect(s);
+  s.connect(reverbIn);
 }
 
 export function resumeAudio() {
@@ -47,43 +84,61 @@ function noiseSource(duration, playbackRate = 1) {
   return src;
 }
 
-/** 枪声：低频"砰" + 噪声爆裂 + 尾音 */
+/**
+ * 枪声：分四层合成，更接近真实枪响
+ *   1) 极短的爆燃 transient（枪机/击发的"啪"）
+ *   2) 主爆音 crack —— 宽带噪声，中心频率快速下扫（枪口爆炸波）
+ *   3) 低频 body punch（推背的"咚"）
+ *   4) 送入卷积混响，得到环境回响尾音
+ * 兼容旧字段：没有新字段时回退到 频率/噪声。
+ */
 export function playShot(tone) {
   if (!ctx) return;
   const t = now();
-  const dur = tone.长度;
+  const dur = tone.长度 ?? 0.16;
+  const bright = tone.亮度 ?? (tone.频率 ? tone.频率 * 6 : 2000);
+  const bodyHz = tone.低频 ?? (tone.频率 ?? 140);
+  const level = tone.音量 ?? 0.8;
+  const verb = tone.混响 ?? 0.3;
 
-  // 噪声爆裂
+  const out = ctx.createGain();
+  out.gain.value = level;
+  out.connect(master);
+  sendReverb(out, verb);
+
+  // 1) 起始 transient：极短高频噪声"啪"
+  const clk = noiseSource(0.01);
+  const cf = ctx.createBiquadFilter();
+  cf.type = 'highpass'; cf.frequency.value = 3500;
+  const cg = ctx.createGain();
+  cg.gain.setValueAtTime(0.9, t);
+  cg.gain.exponentialRampToValueAtTime(0.001, t + 0.02);
+  clk.connect(cf).connect(cg).connect(out);
+
+  // 2) 主爆音 crack：宽带噪声 + 带通中心快速下扫 + 快衰减
   const n = noiseSource(dur);
-  const nf = ctx.createBiquadFilter();
-  nf.type = 'bandpass';
-  nf.frequency.value = tone.频率 * 4;
-  nf.Q.value = 0.7;
+  const bp = ctx.createBiquadFilter();
+  bp.type = 'bandpass';
+  bp.frequency.setValueAtTime(bright, t);
+  bp.frequency.exponentialRampToValueAtTime(Math.max(180, bright * 0.35), t + dur * 0.7);
+  bp.Q.value = 0.9;
+  const lp = ctx.createBiquadFilter();     // 再叠一层低通，去掉太尖的毛刺
+  lp.type = 'lowpass'; lp.frequency.value = bright * 1.6;
   const ng = ctx.createGain();
-  ng.gain.setValueAtTime(0.85 * tone.噪声, t);
+  ng.gain.setValueAtTime(1.0, t);
   ng.gain.exponentialRampToValueAtTime(0.001, t + dur);
-  n.connect(nf).connect(ng).connect(master);
+  n.connect(bp).connect(lp).connect(ng).connect(out);
 
-  // 低频冲击
+  // 3) 低频 body punch
   const o = ctx.createOscillator();
-  o.type = 'square';
-  o.frequency.setValueAtTime(tone.频率, t);
-  o.frequency.exponentialRampToValueAtTime(tone.频率 * 0.35, t + dur * 0.8);
+  o.type = 'sine';
+  o.frequency.setValueAtTime(bodyHz * 2.2, t);
+  o.frequency.exponentialRampToValueAtTime(bodyHz * 0.5, t + dur * 0.5);
   const og = ctx.createGain();
-  og.gain.setValueAtTime(0.5, t);
+  og.gain.setValueAtTime(0.7, t);
   og.gain.exponentialRampToValueAtTime(0.001, t + dur * 0.9);
-  o.connect(og).connect(master);
+  o.connect(og).connect(out);
   o.start(t); o.stop(t + dur + 0.02);
-
-  // 房间尾音
-  const tail = noiseSource(0.35, 0.6);
-  const tf = ctx.createBiquadFilter();
-  tf.type = 'lowpass';
-  tf.frequency.value = 900;
-  const tg = ctx.createGain();
-  tg.gain.setValueAtTime(0.16, t + 0.02);
-  tg.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
-  tail.connect(tf).connect(tg).connect(master);
 }
 
 /** 命中反馈：清脆的"叮" */
@@ -183,62 +238,70 @@ export function playDeath() {
   o.start(t); o.stop(t + 0.7);
 }
 
-/** 火箭发射：低沉的"咚"+ 喷射嘶声 */
+/** 火箭发射：点火"咚" + 长喷射嘶声（送混响） */
 export function playRocketFire() {
   if (!ctx) return;
   const t = now();
+  const out = ctx.createGain(); out.gain.value = 0.9; out.connect(master);
+  sendReverb(out, 0.35);
   // 点火冲击
   const o = ctx.createOscillator();
-  o.type = 'square';
-  o.frequency.setValueAtTime(160, t);
-  o.frequency.exponentialRampToValueAtTime(50, t + 0.25);
+  o.type = 'sawtooth';
+  o.frequency.setValueAtTime(180, t);
+  o.frequency.exponentialRampToValueAtTime(45, t + 0.28);
   const og = ctx.createGain();
-  og.gain.setValueAtTime(0.6, t);
-  og.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
-  o.connect(og).connect(master);
-  o.start(t); o.stop(t + 0.32);
-  // 喷射嘶声
-  const n = noiseSource(0.35, 0.7);
+  og.gain.setValueAtTime(0.7, t);
+  og.gain.exponentialRampToValueAtTime(0.001, t + 0.32);
+  o.connect(og).connect(out);
+  o.start(t); o.stop(t + 0.34);
+  // 喷射嘶声（下扫）
+  const n = noiseSource(0.4, 0.7);
   const f = ctx.createBiquadFilter();
-  f.type = 'bandpass'; f.frequency.value = 1200; f.Q.value = 0.6;
+  f.type = 'bandpass'; f.frequency.setValueAtTime(1600, t);
+  f.frequency.exponentialRampToValueAtTime(600, t + 0.4); f.Q.value = 0.5;
   const ng = ctx.createGain();
-  ng.gain.setValueAtTime(0.5, t);
-  ng.gain.exponentialRampToValueAtTime(0.001, t + 0.35);
-  n.connect(f).connect(ng).connect(master);
+  ng.gain.setValueAtTime(0.55, t);
+  ng.gain.exponentialRampToValueAtTime(0.001, t + 0.4);
+  n.connect(f).connect(ng).connect(out);
 }
 
-/** 爆炸：大低频轰响 + 碎裂噪声 + 回声尾 */
+/** 爆炸：尖锐炸裂 + 深低频轰 + 碎片噪声 + 长混响回声 */
 export function playExplosion() {
   if (!ctx) return;
   const t = now();
-  // 低频轰
-  const o = ctx.createOscillator();
-  o.type = 'sine';
-  o.frequency.setValueAtTime(120, t);
-  o.frequency.exponentialRampToValueAtTime(28, t + 0.5);
-  const og = ctx.createGain();
-  og.gain.setValueAtTime(1.0, t);
-  og.gain.exponentialRampToValueAtTime(0.001, t + 0.7);
-  o.connect(og).connect(master);
-  o.start(t); o.stop(t + 0.72);
-  // 碎裂噪声
-  const n = noiseSource(0.5);
+  const out = ctx.createGain(); out.gain.value = 1.0; out.connect(master);
+  sendReverb(out, 0.7);
+
+  // 起始尖锐炸裂
+  const clk = noiseSource(0.03);
+  const cf = ctx.createBiquadFilter(); cf.type = 'highpass'; cf.frequency.value = 1800;
+  const cg = ctx.createGain();
+  cg.gain.setValueAtTime(1.0, t); cg.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+  clk.connect(cf).connect(cg).connect(out);
+
+  // 深低频轰（两层，一层更低）
+  for (const [f0, f1, lv, len] of [[130, 26, 1.0, 0.75], [70, 20, 0.7, 0.55]]) {
+    const o = ctx.createOscillator();
+    o.type = 'sine';
+    o.frequency.setValueAtTime(f0, t);
+    o.frequency.exponentialRampToValueAtTime(f1, t + len);
+    const og = ctx.createGain();
+    og.gain.setValueAtTime(lv, t);
+    og.gain.exponentialRampToValueAtTime(0.001, t + len);
+    o.connect(og).connect(out);
+    o.start(t); o.stop(t + len + 0.02);
+  }
+
+  // 碎片/火焰噪声，低通下扫
+  const n = noiseSource(0.6);
   const f = ctx.createBiquadFilter();
   f.type = 'lowpass';
-  f.frequency.setValueAtTime(2200, t);
-  f.frequency.exponentialRampToValueAtTime(200, t + 0.5);
+  f.frequency.setValueAtTime(3000, t);
+  f.frequency.exponentialRampToValueAtTime(180, t + 0.55);
   const ng = ctx.createGain();
-  ng.gain.setValueAtTime(0.9, t);
-  ng.gain.exponentialRampToValueAtTime(0.001, t + 0.55);
-  n.connect(f).connect(ng).connect(master);
-  // 回声尾
-  const tail = noiseSource(0.6, 0.5);
-  const tf = ctx.createBiquadFilter();
-  tf.type = 'lowpass'; tf.frequency.value = 600;
-  const tg = ctx.createGain();
-  tg.gain.setValueAtTime(0.25, t + 0.05);
-  tg.gain.exponentialRampToValueAtTime(0.001, t + 0.65);
-  tail.connect(tf).connect(tg).connect(master);
+  ng.gain.setValueAtTime(0.95, t);
+  ng.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
+  n.connect(f).connect(ng).connect(out);
 }
 
 /** 新一波开始的警报 */

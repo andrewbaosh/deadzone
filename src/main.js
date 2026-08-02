@@ -66,9 +66,10 @@ let extractionActive = false;
 let holdProgress = 0;        // 已在撤离区停留的秒数
 let contSpawnTimer = 0;      // 撤离阶段持续出怪计时
 
-// 瞄准状态：切换式(Q)或按住式(右键)，两者取或
+// 瞄准状态：切换式(F)或按住式(右键)，两者取或
 let aimToggle = false;
 let rightHeld = false;
+let prevWeaponName = '步枪';    // 检测换枪以自动收镜
 
 /* ============ HUD 元素 ============ */
 const el = (id) => document.getElementById(id);
@@ -78,6 +79,7 @@ const hud = {
   wave: el('wave'), score: el('score'), kills: el('kills'),
   enemiesLeft: el('enemies-left'),
   crosshair: el('crosshair'),
+  scope: el('scope'),
   center: el('center-msg'),
   damageVignette: el('damage-vignette'),
   hitmarker: el('hitmarker'),
@@ -142,14 +144,17 @@ document.addEventListener('keydown', (e) => {
   if (state !== STATE.PLAYING) return;
   player.onKey(e.code, true);
   if (e.code === 'KeyR') weapons.startReload();
-  if (e.code === 'Digit1') weapons.switchByIndex(0);
-  if (e.code === 'Digit2') weapons.switchByIndex(1);
-  if (e.code === 'Digit3') weapons.switchByIndex(2);
-  if (e.code === 'Digit4') weapons.switchByIndex(3);
-  if (e.code === 'KeyQ') aimToggle = !aimToggle;                  // 触摸板：按 Q 切换瞄准
-  if (e.code === 'KeyE') { const i = (weapons.slots.indexOf(weapons.current) + 1) % weapons.slots.length; weapons.switchByIndex(i); } // 触摸板换枪
+  // CS 风格选枪：1步枪 2手枪 3霰弹 4火箭 5狙击
+  if (e.code === 'Digit1') weapons.switchTo('步枪');
+  if (e.code === 'Digit2') weapons.switchTo('手枪');
+  if (e.code === 'Digit3') weapons.switchTo('霰弹枪');
+  if (e.code === 'Digit4') weapons.switchTo('火箭筒');
+  if (e.code === 'Digit5') weapons.switchTo('狙击枪');
+  if (e.code === 'KeyQ') weapons.quickSwitch();                   // CS：Q 快速切回上一把
+  if (e.code === 'KeyF') aimToggle = !aimToggle;                  // 开/关瞄准镜（狙击开镜）
+  if (e.code === 'KeyE') { const i = (weapons.slots.indexOf(weapons.current) + 1) % weapons.slots.length; weapons.switchByIndex(i); } // 循环换枪（备用）
   if (e.code === 'KeyM') { const on = toggleMusic(); flashWaveBanner(on ? '♪ 音乐开' : '♪ 音乐关'); }
-  if (['KeyW','KeyA','KeyS','KeyD','Space','KeyR','KeyQ','KeyE','KeyM','Digit4'].includes(e.code)) e.preventDefault();
+  if (['KeyW','KeyA','KeyS','KeyD','Space','KeyR','KeyQ','KeyE','KeyF','KeyM','Digit1','Digit2','Digit3','Digit4','Digit5'].includes(e.code)) e.preventDefault();
 });
 document.addEventListener('keyup', (e) => player.onKey(e.code, false));
 
@@ -196,6 +201,11 @@ function startFreshGame() {
   weapons.buildViewModel();
   state = STATE.PLAYING;
   aimToggle = false; rightHeld = false; aiming = false;
+  prevWeaponName = weapons.current;
+  player.sensScale = 1; player.speedScale = 1;
+  hud.scope.style.display = 'none';
+  hud.crosshair.style.visibility = 'visible';
+  weapons.viewGroup.visible = true;
   setCenterMsg('', false);
   restTimer = 2.5;         // 开局给 2.5 秒喘口气
   waveActive = false;
@@ -564,8 +574,17 @@ function frame() {
   const time = clock.elapsedTime;
 
   if (state === STATE.PLAYING) {
-    // 瞄准状态（切换或按住）
+    // 换枪时自动收镜
+    if (weapons.current !== prevWeaponName) { aimToggle = false; prevWeaponName = weapons.current; }
+
+    // 瞄准状态（F 切换 或 右键按住）
     aiming = aimToggle || rightHeld;
+    const scoped = aiming && !!weapons.cfg.是狙击;
+
+    // 瞄准镜 / 准星 / 枪模型 显隐
+    hud.scope.style.display = scoped ? 'block' : 'none';
+    hud.crosshair.style.visibility = scoped ? 'hidden' : 'visible';
+    weapons.viewGroup.visible = !scoped;
 
     // 后坐力叠加到视角
     player.extraPitch = weapons.recoilPitch;
@@ -581,10 +600,14 @@ function frame() {
       setIntensity(0.08);
     }
 
-    // 开镜改 FOV
-    const targetFov = aiming ? 手感.开镜视野 : 手感.视野角度;
+    // 开镜改 FOV（狙击枪用自己的高倍率视野）
+    const adsFov = weapons.cfg.开镜视野 ?? 手感.开镜视野;
+    const targetFov = aiming ? adsFov : 手感.视野角度;
     camera.fov += (targetFov - camera.fov) * Math.min(1, dt * 12);
     camera.updateProjectionMatrix();
+    // 放大越多，鼠标越慢（好瞄）；开镜走得更慢
+    player.sensScale = camera.fov / 手感.视野角度;
+    player.speedScale = scoped ? (weapons.cfg.开镜移速倍率 ?? 0.5) : 1;
 
     player.update(dt, time);
 
@@ -696,6 +719,9 @@ window.__game = {
   setPlayerPos(x, z) { player.pos.x = x; player.pos.z = z; },
   get rockets() { return rockets; },
   get shake() { return shakeAmount; },
+  get weapons() { return weapons; },
+  get aiming() { return aiming; },
+  setAim(v) { aimToggle = !!v; prevWeaponName = weapons.current; },
   // 从相机方向发射一枚火箭
   spawnRocketFromCamera() {
     const dir = new THREE.Vector3(); camera.getWorldDirection(dir);

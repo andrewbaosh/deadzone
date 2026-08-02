@@ -27,6 +27,23 @@
     #crosshair .dot { position: absolute; left: 50%; top: 50%; width: 2px; height: 2px;
       background: #00ff9c; border-radius: 50%; transform: translate(-50%, -50%); }
 
+    /* 狙击瞄准镜 */
+    #scope { position: absolute; inset: 0; display: none; z-index: 13; pointer-events: none; }
+    #scope .lens { position: absolute; left: 50%; top: 50%; width: 86vmin; height: 86vmin;
+      transform: translate(-50%, -50%); border-radius: 50%;
+      box-shadow: 0 0 0 100vmax #000, inset 0 0 60px 10px rgba(0,0,0,.9);
+      border: 2px solid rgba(0,0,0,.9); }
+    #scope .ch-h, #scope .ch-v { position: absolute; background: rgba(10,20,15,.9); }
+    #scope .ch-h { left: 0; right: 0; top: 50%; height: 1px; transform: translateY(-50%); }
+    #scope .ch-v { top: 0; bottom: 0; left: 50%; width: 1px; transform: translateX(-50%); }
+    #scope .ch-dot { position: absolute; left: 50%; top: 50%; width: 4px; height: 4px;
+      background: #d33; border-radius: 50%; transform: translate(-50%, -50%); }
+    #scope .ticks { position: absolute; left: 50%; top: 50%; width: 86vmin; height: 86vmin;
+      transform: translate(-50%, -50%); border-radius: 50%; }
+    #scope .ticks::before, #scope .ticks::after { content: ''; position: absolute; background: rgba(10,20,15,.55); }
+    #scope .ticks::before { left: 50%; top: 8%; width: 1px; height: 12%; transform: translateX(-50%); }
+    #scope .ticks::after  { left: 50%; bottom: 8%; width: 1px; height: 12%; transform: translateX(-50%); }
+
     /* 命中标记 */
     #hitmarker { position: absolute; left: 50%; top: 50%; transform: translate(-50%,-50%) rotate(45deg);
       width: 22px; height: 22px; opacity: 0; transition: opacity .05s; }
@@ -144,6 +161,15 @@
     </div>
     <div id="hitmarker"></div>
 
+    <!-- 狙击瞄准镜 -->
+    <div id="scope">
+      <div class="ticks"></div>
+      <div class="ch-h"></div>
+      <div class="ch-v"></div>
+      <div class="lens"></div>
+      <div class="ch-dot"></div>
+    </div>
+
     <div id="stats">
       <div class="row"><span class="k">波次 WAVE</span><span class="v big" id="wave">0</span></div>
       <div class="row"><span class="k">得分 SCORE</span><span class="v" id="score">0</span></div>
@@ -159,7 +185,7 @@
     <div id="weapon">
       <div id="ammo">30 / 180</div>
       <div id="weapon-name">步枪 AR-15</div>
-      <div id="weapon-hint">1/2/3/4 或 E 换枪 · 4=火箭筒 · R 换弹 · Q 瞄准 · M 音乐</div>
+      <div id="weapon-hint">1步枪 2手枪 3霰弹 4火箭 5狙击 · Q 切上一把 · 右键/F 开镜 · R 换弹 · M 音乐</div>
     </div>
 
     <!-- 撤离点路标（方向 + 距离） -->
@@ -187,12 +213,13 @@
       <span class="key">W A S D</span><span>移动</span>
       <span class="key">触摸板 / 鼠标</span><span>转视角</span>
       <span class="key">左键 / 单击</span><span>开火（按住连发）</span>
-      <span class="key">Q</span><span>瞄准（再按一下取消）</span>
+      <span class="key">右键 或 F</span><span>开镜 / 瞄准（狙击放大）</span>
+      <span class="key">1 / 2 / 3 / 4 / 5</span><span>步枪·手枪·霰弹·火箭·狙击</span>
+      <span class="key">Q</span><span>快速切回上一把枪（CS）</span>
       <span class="key">Shift</span><span>奔跑</span>
       <span class="key">Ctrl / C</span><span>蹲下</span>
       <span class="key">空格</span><span>跳跃</span>
       <span class="key">R</span><span>换弹</span>
-      <span class="key">E 或 1 / 2 / 3 / 4</span><span>换枪（4 = 火箭筒，每局 3 发）</span>
       <span class="key">M</span><span>背景音乐 开 / 关</span>
     </div>
     <div class="start-cta">点击开始（触摸板可用，会锁定光标 · Esc 暂停）</div>

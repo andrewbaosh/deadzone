@@ -24,6 +24,9 @@ export class Player {
     this.targetHeight = PLAYER.身高;
     this.crouching = false;
 
+    this.sensScale = 1;     // 开镜时调低鼠标灵敏度（放大越多越低）
+    this.speedScale = 1;    // 开镜时走得更慢
+
     this.hp = PLAYER.最大生命;
     this.maxHp = PLAYER.最大生命;
     this.lastDamageTime = -999;
@@ -46,7 +49,7 @@ export class Player {
   }
 
   onMouseMove(dx, dy) {
-    const sens = 0.0022 * 手感.鼠标灵敏度;
+    const sens = 0.0022 * 手感.鼠标灵敏度 * this.sensScale;
     this.yaw -= dx * sens;
     const invert = 手感.上下反转 ? -1 : 1;
     this.pitch -= dy * sens * invert;
@@ -85,7 +88,7 @@ export class Player {
     if (this.keys['KeyD']) wish.sub(right);
     if (this.keys['KeyA']) wish.add(right);
     const moving = wish.lengthSq() > 0.001;
-    if (moving) wish.normalize().multiplyScalar(this.moveSpeed);
+    if (moving) wish.normalize().multiplyScalar(this.moveSpeed * this.speedScale);
 
     // 地面上直接给速度；空中只给一点点操控
     const control = this.onGround ? 1 : PLAYER.空中操控;
@@ -102,9 +105,8 @@ export class Player {
 
     // ---- 应用位移 + 碰撞 ----
     this.pos.x += this.vel.x * dt;
-    this.resolveHoriz('x');
     this.pos.z += this.vel.z * dt;
-    this.resolveHoriz('z');
+    this.resolveHoriz();
 
     this.pos.y += this.vel.y * dt;
     this.resolveVert();
@@ -116,24 +118,31 @@ export class Player {
     this.updateCamera(dt, moving && this.onGround);
   }
 
-  // 水平方向撞盒子 -> 把玩家推出去（滑行）
-  resolveHoriz(axis) {
+  // 水平碰撞：把玩家（半径 r 的圆柱）从盒子里沿"最浅方向"推出去
+  resolveHoriz() {
     const r = PLAYER.身体半径;
     const footY = this.pos.y - this.height;
     const headY = this.pos.y;
     for (const c of this.level.colliders) {
-      if (headY < c.min.y || footY > c.max.y) continue;   // 高度不重叠
-      const cx = Math.max(c.min.x, Math.min(this.pos.x, c.max.x));
-      const cz = Math.max(c.min.z, Math.min(this.pos.z, c.max.z));
-      const dx = this.pos.x - cx;
-      const dz = this.pos.z - cz;
-      if (dx * dx + dz * dz < r * r) {
-        // 能不能踩上去（矮台阶）？留给竖直解算处理，这里只做水平阻挡
-        const stepTop = c.max.y;
-        if (stepTop - footY <= 0.85 && this.vel.y <= 0.01) continue; // 可跨上的台阶，不挡
-        if (axis === 'x') this.pos.x = dx > 0 ? cx + r : cx - r;
-        else this.pos.z = dz > 0 ? cz + r : cz - r;
-      }
+      if (headY < c.min.y || footY > c.max.y) continue;         // 高度不重叠
+      // 矮台阶（顶面离脚不超过 0.85 米）：不挡，交给竖直解算把人抬上去
+      if (c.max.y - footY <= 0.85 && this.onGround) continue;
+
+      // 把盒子在水平面上向外扩张 r，玩家当作一个点
+      const minX = c.min.x - r, maxX = c.max.x + r;
+      const minZ = c.min.z - r, maxZ = c.max.z + r;
+      if (this.pos.x <= minX || this.pos.x >= maxX || this.pos.z <= minZ || this.pos.z >= maxZ) continue;
+
+      // 四个面各自的穿透深度，挑最浅的那个方向推出去
+      const penXpos = maxX - this.pos.x;   // 往 +x 推
+      const penXneg = this.pos.x - minX;   // 往 -x 推
+      const penZpos = maxZ - this.pos.z;   // 往 +z 推
+      const penZneg = this.pos.z - minZ;   // 往 -z 推
+      const m = Math.min(penXpos, penXneg, penZpos, penZneg);
+      if (m === penXpos) { this.pos.x = maxX; if (this.vel.x < 0) this.vel.x = 0; }
+      else if (m === penXneg) { this.pos.x = minX; if (this.vel.x > 0) this.vel.x = 0; }
+      else if (m === penZpos) { this.pos.z = maxZ; if (this.vel.z < 0) this.vel.z = 0; }
+      else { this.pos.z = minZ; if (this.vel.z > 0) this.vel.z = 0; }
     }
   }
 
@@ -147,8 +156,9 @@ export class Player {
       const overlapZ = this.pos.z > c.min.z - r && this.pos.z < c.max.z + r;
       if (overlapX && overlapZ) {
         const footY = this.pos.y - this.height;
-        // 站在这个盒子顶面上
-        if (footY >= c.max.y - 0.6 && c.max.y > groundY) {
+        // 站在这个盒子顶面上（或踏上不超过 0.9 米的台阶）
+        // 阈值 0.9 略大于水平放行的 0.85，保证能走上去的台阶一定会把人抬起来
+        if (footY >= c.max.y - 0.9 && c.max.y > groundY) {
           groundY = c.max.y;
         }
         // 撞到盒子底面（跳起来顶头）
