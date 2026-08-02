@@ -10,6 +10,9 @@ import { Rocket } from './rocket.js';
 import { initAudio, resumeAudio, playWaveStart, playPlayerHurt, playExplosion, getAudio, _soundState } from './audio.js';
 import { initMusic, startMusic, stopMusic, toggleMusic, setIntensity, isMusicOn, _debug as musicDebug } from './music.js';
 import { 声音 } from './config.js';
+import { QualityManager } from './graphics/QualityManager.js';
+import { StatsPanel } from './graphics/StatsPanel.js';
+import { GFX } from './config/graphics.js';
 
 /* ============ 渲染基础 ============ */
 const canvas = document.getElementById('game');
@@ -18,6 +21,12 @@ renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
 renderer.shadowMap.enabled = 画面.阴影;
 renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+/* ============ 画质框架（阶段0） ============ */
+const statsPanel = new StatsPanel();
+// 后续阶段往这里挂"档位变化时要调整的东西"（雾密度/后处理/头灯投影…）
+let onQualityChange = () => {};
+const quality = new QualityManager(renderer, (p, tier) => onQualityChange(p, tier));
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x0d1017);
@@ -154,6 +163,8 @@ document.addEventListener('keydown', (e) => {
   if (e.code === 'KeyF') aimToggle = !aimToggle;                  // 开/关瞄准镜（狙击开镜）
   if (e.code === 'KeyE') { const i = (weapons.slots.indexOf(weapons.current) + 1) % weapons.slots.length; weapons.switchByIndex(i); } // 循环换枪（备用）
   if (e.code === 'KeyM') { const on = toggleMusic(); flashWaveBanner(on ? '♪ 音乐开' : '♪ 音乐关'); }
+  if (e.code === 'F7') { quality.cycleTier(); flashWaveBanner('画质 ' + quality.tierName); }
+  if (e.code === 'F8') { statsPanel.toggle(); }
   if (['KeyW','KeyA','KeyS','KeyD','Space','KeyR','KeyQ','KeyE','KeyF','KeyM','Digit1','Digit2','Digit3','Digit4','Digit5'].includes(e.code)) e.preventDefault();
 });
 document.addEventListener('keyup', (e) => player.onKey(e.code, false));
@@ -573,6 +584,9 @@ function frame() {
   const dt = Math.min(0.05, clock.getDelta());
   const time = clock.elapsedTime;
 
+  statsPanel.begin();
+  quality.sample(dt);   // 前两秒自动测帧率、必要时降档
+
   if (state === STATE.PLAYING) {
     // 换枪时自动收镜
     if (weapons.current !== prevWeaponName) { aimToggle = false; prevWeaponName = weapons.current; }
@@ -659,6 +673,7 @@ function frame() {
   }
 
   renderer.render(scene, camera);
+  statsPanel.end(renderer, { tier: quality.tierName, enemies: enemies.length });
 }
 
 /* ============ HUD 刷新 ============ */
@@ -722,6 +737,26 @@ window.__game = {
   get weapons() { return weapons; },
   get aiming() { return aiming; },
   setAim(v) { aimToggle = !!v; prevWeaponName = weapons.current; },
+  // 自测/性能钩子
+  stats() {
+    return {
+      tier: quality.tierName,
+      calls: renderer.info.render.calls,
+      tris: renderer.info.render.triangles,
+      enemies: enemies.length,
+      auto: quality._autoResult || null,
+    };
+  },
+  spawnTestEnemies(n = 5) {
+    for (let i = 0; i < n; i++) {
+      const a = Math.random() * Math.PI * 2;
+      const d = 7 + Math.random() * 9;
+      const pos = new THREE.Vector3(player.pos.x + Math.cos(a) * d, 0, player.pos.z + Math.sin(a) * d - 4);
+      enemies.push(new Enemy(scene, pos, Math.max(1, wave || 1)));
+    }
+    return enemies.length;
+  },
+  setTier(t) { quality.setTier(t); },
   // 只初始化音频、加载采样，不放音乐（测试用，保持静音）
   initAudioNoMusic() { initAudio(); resumeAudio(); const a = getAudio(); if (a) a.master.gain.value = 0; },
   soundState() { return _soundState(); },
