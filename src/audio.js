@@ -403,6 +403,78 @@ export function playHeartbeat() {
   }
 }
 
+/* ---------------- 环境底噪 drone + 音频 ducking ---------------- */
+let ambientGain = null;    // 环境音量（渐入渐出）
+let duckGain = null;       // 开火时压低环境用
+let ambientNodes = [];
+let ambientOn = false;
+let ambientTarget = 0.16;
+
+function ensureAmbient() {
+  if (ambientGain || !ctx) return;
+  ambientGain = ctx.createGain(); ambientGain.gain.value = 0;
+  duckGain = ctx.createGain(); duckGain.gain.value = 1;
+  ambientGain.connect(duckGain).connect(master);
+
+  // 低沉不和谐的 drone：几个失谐锯齿过低通
+  const filt = ctx.createBiquadFilter();
+  filt.type = 'lowpass'; filt.frequency.value = 190; filt.Q.value = 3;
+  filt.connect(ambientGain);
+  for (const f of [41.2, 55, 61.7]) {
+    const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f;
+    const g = ctx.createGain(); g.gain.value = 0.25;
+    o.connect(g).connect(filt); o.start(); ambientNodes.push(o);
+  }
+  // 超低 sub
+  const sub = ctx.createOscillator(); sub.type = 'sine'; sub.frequency.value = 32;
+  const sg = ctx.createGain(); sg.gain.value = 0.4;
+  sub.connect(sg).connect(ambientGain); sub.start(); ambientNodes.push(sub);
+  // 慢速 LFO 扫滤波，让 drone 有呼吸感
+  const lfo = ctx.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 0.05;
+  const lg = ctx.createGain(); lg.gain.value = 70;
+  lfo.connect(lg).connect(filt.frequency); lfo.start(); ambientNodes.push(lfo);
+  // 一层极轻的低频风噪
+  const n = noiseSource(99999, 0.2);
+  const nf = ctx.createBiquadFilter(); nf.type = 'lowpass'; nf.frequency.value = 420;
+  const ng = ctx.createGain(); ng.gain.value = 0.05;
+  n.connect(nf).connect(ng).connect(ambientGain); ambientNodes.push(n);
+}
+
+export function startAmbient() {
+  if (!ctx) return;
+  ensureAmbient();
+  ambientOn = true;
+  const t = now();
+  ambientGain.gain.cancelScheduledValues(t);
+  ambientGain.gain.linearRampToValueAtTime(ambientTarget, t + 1.5);
+}
+
+export function stopAmbient() {
+  if (!ambientGain) return;
+  ambientOn = false;
+  const t = now();
+  ambientGain.gain.cancelScheduledValues(t);
+  ambientGain.gain.linearRampToValueAtTime(0, t + 0.4);
+}
+
+/** 开火/爆炸时短暂压低环境音（ducking） */
+export function duckEnv(amount = 0.5, dur = 0.25) {
+  if (!duckGain) return;
+  const t = now();
+  duckGain.gain.cancelScheduledValues(t);
+  duckGain.gain.setValueAtTime(duckGain.gain.value, t);
+  duckGain.gain.linearRampToValueAtTime(Math.max(0.1, 1 - amount), t + 0.02);
+  duckGain.gain.linearRampToValueAtTime(1, t + dur);
+}
+
+export function setAmbientVolume(v) {
+  ambientTarget = v;
+  if (ambientOn && ambientGain) {
+    ambientGain.gain.cancelScheduledValues(now());
+    ambientGain.gain.linearRampToValueAtTime(v, now() + 0.2);
+  }
+}
+
 /** 新一波开始的警报 */
 export function playWaveStart() {
   if (!ctx) return;

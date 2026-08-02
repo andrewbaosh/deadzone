@@ -7,7 +7,7 @@ import { Enemy } from './enemy.js';
 import { Effects } from './effects.js';
 import { Extraction } from './extraction.js';
 import { Rocket } from './rocket.js';
-import { initAudio, resumeAudio, playWaveStart, playPlayerHurt, playExplosion, getAudio, _soundState } from './audio.js';
+import { initAudio, resumeAudio, playWaveStart, playPlayerHurt, playExplosion, getAudio, _soundState, startAmbient, stopAmbient, duckEnv } from './audio.js';
 import { initMusic, startMusic, stopMusic, toggleMusic, setIntensity, isMusicOn, _debug as musicDebug } from './music.js';
 import { 声音 } from './config.js';
 import { QualityManager } from './graphics/QualityManager.js';
@@ -17,7 +17,7 @@ import { setupAtmosphere, setFogDensity } from './graphics/atmosphere.js';
 import { PostFX } from './graphics/PostFX.js';
 import { DynamicLights } from './graphics/DynamicLights.js';
 import { EyeField } from './graphics/EyeField.js';
-import { 打击感, 波次曲线 } from './config/gameplay.js';
+import { 打击感, 波次曲线, 音效氛围 } from './config/gameplay.js';
 import { playHeartbeat } from './audio.js';
 
 /* ============ 渲染基础 ============ */
@@ -154,12 +154,14 @@ document.addEventListener('pointerlockchange', () => {
     startOverlay.style.display = 'none';
     if (state === STATE.MENU) startFreshGame();
     if (state === STATE.DEAD) { /* 死亡界面自己处理重开 */ }
-    // 开始/恢复游戏时才放音乐（若被 M 关掉则 startMusic 自动跳过）
+    // 开始/恢复游戏时才放音乐（若被 M 关掉则 startMusic 自动跳过）+ 环境底噪
     if (声音.开背景音乐) startMusic();
+    if (音效氛围.环境drone) startAmbient();
   } else {
     if (state === STATE.PLAYING) {
-      // 暂停：停掉音乐
+      // 暂停：停掉音乐 + 环境
       stopMusic();
+      stopAmbient();
       setCenterMsg('<div class="big">已暂停</div><div class="sub">点击画面继续</div>');
       startOverlay.style.display = 'flex';
       startOverlay.querySelector('.start-title').textContent = '已暂停';
@@ -172,8 +174,10 @@ document.addEventListener('pointerlockchange', () => {
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     stopMusic();
-  } else if (state === STATE.PLAYING && document.pointerLockElement === canvas && 声音.开背景音乐) {
-    startMusic();
+    stopAmbient();
+  } else if (state === STATE.PLAYING && document.pointerLockElement === canvas) {
+    if (声音.开背景音乐) startMusic();
+    if (音效氛围.环境drone) startAmbient();
   }
 });
 
@@ -406,6 +410,7 @@ function onWin() {
   extractionActive = false;
   score += 分数.撤离成功;
   stopMusic();
+  stopAmbient();
   document.exitPointerLock();
   hud.waypoint.style.display = 'none';
   hud.extractStatus.style.display = 'none';
@@ -477,6 +482,7 @@ function explode(center, direct, time) {
   const cfg = 武器Config('火箭筒');
   effects.addExplosion(center, cfg.爆炸半径);
   playExplosion();
+  if (音效氛围.开火压低环境) duckEnv(0.7, 0.4);
   addShake(0.5 * 手感.屏幕震动);
 
   // 对所有敌人施加冲击波
@@ -594,6 +600,7 @@ function damagePlayer(dmg, time) {
 function onPlayerDeath() {
   state = STATE.DEAD;
   stopMusic();                 // 死了就停音乐
+  stopAmbient();
   hud.waypoint.style.display = 'none';
   hud.extractStatus.style.display = 'none';
   document.exitPointerLock();
@@ -681,6 +688,8 @@ function frame() {
       else processShot(shot);
       // 枪口火光：从对象池借一盏暖光照亮周围
       dynamicLights.muzzleFlash(muzzlePos());
+      // 开火压低环境音（ducking）
+      if (音效氛围.开火压低环境) duckEnv(0.5, 0.22);
       // 开火轻微抖屏（火箭的抖动在爆炸时另算）
       if (打击感.镜头抖动 && !shot.rocket) addShake(0.014 * (weapons.cfg.后坐力 || 2) * 打击感.抖动强度);
     }

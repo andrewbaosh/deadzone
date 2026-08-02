@@ -113,3 +113,13 @@
 - **改了哪些文件**：`gameplay.js`(种类加颜色)、`enemy.js`(类型从配置选、自爆属性)、`main.js`(精英波、自爆死亡伤害)。寻路/碰撞/命中检测**未动**。
 - **自测**：ok=true 无 error。截图 `stage5-types.png`。
 - **给你早上的问题**：是否要我在你醒着时把丧尸身体也实例化（收益：HIGH draw call 大降；代价：改命中检测核心，需你在场测试）？见上。
+
+### 阶段6 · 音效氛围 ✅
+- **做了什么**（`audio.js` 新增，`gameplay.js` 的 `音效氛围` 可开关）：
+  - **环境底噪 drone**：几个失谐低频锯齿 + 32Hz sub + 慢速 LFO 扫滤波 + 极轻风噪，营造持续低沉恐怖氛围；随游戏开始渐入、暂停/死亡/切后台渐出。
+  - **音频 ducking**：开火压低环境音(-50%,0.22s)、爆炸更狠(-70%,0.4s)，让枪声爆炸更突出。
+  - 原有：开火/换弹/命中(playHitmarker 区分爆头)/被咬(playPlayerHurt)/丧尸吼叫(playGrowl 按距离调音量) 全部保留。
+- **改了哪些文件**：`audio.js`(ambient/duck)、`main.js`(生命周期 start/stopAmbient + 开火/爆炸 duck)。
+- **自测**：ok=true 无 error；ambient start/duck/stop 无异常（静音验证）。
+- **跳过/说明**：丧尸吼叫用的是"按距离调音量"而非 Three.js PositionalAudio 的真三维声像——前者已够用且更省，真正的 3D 声像收益有限、集成成本高，**故跳过**。所有音量目前在 `config.js 声音` 与 `setAmbientVolume()`，阶段7 的设置菜单会接上滑块。
+- **给你早上的问题**：环境底噪默认音量 0.16，觉得吵可在 `audio.js` 的 `ambientTarget` 调低或 `gameplay.js` 关 `环境drone`。
