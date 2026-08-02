@@ -45,7 +45,12 @@ export class StatsPanel {
   toggle() {
     if (!this.enabled) return;
     const vis = this.stats.dom.style.display !== 'none';
-    this.stats.dom.style.display = vis ? 'none' : '';
-    this.info.style.display = vis ? 'none' : '';
+    this.setVisible(!vis);
+  }
+
+  setVisible(on) {
+    if (!this.enabled) return;
+    this.stats.dom.style.display = on ? '' : 'none';
+    this.info.style.display = on ? '' : 'none';
   }
 }

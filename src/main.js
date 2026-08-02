@@ -8,7 +8,8 @@ import { Effects } from './effects.js';
 import { Extraction } from './extraction.js';
 import { Rocket } from './rocket.js';
 import { initAudio, resumeAudio, playWaveStart, playPlayerHurt, playExplosion, getAudio, _soundState, startAmbient, stopAmbient, duckEnv } from './audio.js';
-import { initMusic, startMusic, stopMusic, toggleMusic, setIntensity, isMusicOn, _debug as musicDebug } from './music.js';
+import { initMusic, startMusic, stopMusic, toggleMusic, setIntensity, isMusicOn, setMusicVolume, _debug as musicDebug } from './music.js';
+import { setVolume as setMasterVolume, setAmbientVolume } from './audio.js';
 import { 声音 } from './config.js';
 import { QualityManager } from './graphics/QualityManager.js';
 import { StatsPanel } from './graphics/StatsPanel.js';
@@ -137,6 +138,7 @@ function setCenterMsg(html, show = true) {
 
 /* ============ 指针锁定 / 开始 ============ */
 const startOverlay = el('start-overlay');
+const pauseMenu = el('pause-menu');
 
 function beginGame() {
   initAudio();
@@ -152,6 +154,7 @@ document.addEventListener('pointerlockchange', () => {
   const locked = document.pointerLockElement === canvas;
   if (locked) {
     startOverlay.style.display = 'none';
+    pauseMenu.style.display = 'none';
     if (state === STATE.MENU) startFreshGame();
     if (state === STATE.DEAD) { /* 死亡界面自己处理重开 */ }
     // 开始/恢复游戏时才放音乐（若被 M 关掉则 startMusic 自动跳过）+ 环境底噪
@@ -159,13 +162,10 @@ document.addEventListener('pointerlockchange', () => {
     if (音效氛围.环境drone) startAmbient();
   } else {
     if (state === STATE.PLAYING) {
-      // 暂停：停掉音乐 + 环境
+      // 暂停：停掉音乐 + 环境，弹出暂停菜单
       stopMusic();
       stopAmbient();
-      setCenterMsg('<div class="big">已暂停</div><div class="sub">点击画面继续</div>');
-      startOverlay.style.display = 'flex';
-      startOverlay.querySelector('.start-title').textContent = '已暂停';
-      startOverlay.querySelector('.start-sub').textContent = '点击继续游戏';
+      pauseMenu.style.display = 'flex';
     }
   }
 });
@@ -790,6 +790,56 @@ function updateHUD(dt) {
   }
   hud.damageVignette.style.opacity = String(vig);
 }
+
+/* ============ 暂停 / 设置菜单接线（阶段7） ============ */
+function setupPauseMenu() {
+  const $ = (id) => document.getElementById(id);
+
+  $('pm-resume').addEventListener('click', () => canvas.requestPointerLock());
+  $('pm-restart').addEventListener('click', () => { startFreshGame(); canvas.requestPointerLock(); });
+  $('pm-settings-btn').addEventListener('click', () => {
+    const sp = $('settings-panel');
+    sp.style.display = sp.style.display === 'none' ? '' : 'none';
+  });
+
+  // 画质档位分段按钮
+  const tierBtns = $('set-tier').querySelectorAll('button');
+  const refreshTier = () => tierBtns.forEach((b) => b.classList.toggle('active', b.dataset.tier === quality.tierName));
+  tierBtns.forEach((b) => b.addEventListener('click', () => { quality.setTier(b.dataset.tier); refreshTier(); }));
+  refreshTier();
+
+  // 音量滑块
+  const bind = (id, valId, fmt, apply) => {
+    const inp = $(id), lab = $(valId);
+    const on = () => { const v = +inp.value; if (lab) lab.textContent = fmt(v); apply(v); };
+    inp.addEventListener('input', on);
+    return inp;
+  };
+  const master = bind('set-master', 'set-master-v', (v) => v, (v) => { 声音.总音量 = v / 100; setMasterVolume(v / 100); });
+  const music = bind('set-music', 'set-music-v', (v) => v, (v) => { 声音.音乐音量 = v / 100; setMusicVolume(v / 100); });
+  const ambient = bind('set-ambient', 'set-ambient-v', (v) => v, (v) => setAmbientVolume(v / 100));
+  const sens = bind('set-sens', 'set-sens-v', (v) => (v / 100).toFixed(2), (v) => { 手感.鼠标灵敏度 = v / 100; });
+  // 用当前配置初始化滑块
+  master.value = Math.round((声音.总音量 ?? 0.5) * 100); $('set-master-v').textContent = master.value;
+  music.value = Math.round((声音.音乐音量 ?? 0.45) * 100); $('set-music-v').textContent = music.value;
+  ambient.value = 16; $('set-ambient-v').textContent = 16;
+  sens.value = Math.round((手感.鼠标灵敏度 ?? 1) * 100); $('set-sens-v').textContent = (手感.鼠标灵敏度 ?? 1).toFixed(2);
+
+  // 画面效果开关
+  const chk = (id, fn) => { const c = $(id); c.addEventListener('change', () => fn(c.checked)); };
+  chk('fx-post', (on) => { GFX.后处理 = on; postfx.rebuild(quality.params); });
+  chk('fx-bloom', (on) => { GFX.泛光 = on; postfx.rebuild(quality.params); });
+  chk('fx-vignette', (on) => { GFX.暗角 = on; postfx.rebuild(quality.params); });
+  chk('fx-ao', (on) => { GFX.环境光遮蔽 = on; postfx.rebuild(quality.params); });
+  chk('fx-headlight', (on) => { GFX.玩家头灯 = on; dynamicLights.setHeadlight(on); });
+  chk('fx-eyes', (on) => { GFX.丧尸红眼 = on; });
+  chk('fx-stats', (on) => statsPanel.setVisible(on));
+  // 初始化勾选状态
+  $('fx-post').checked = GFX.后处理; $('fx-bloom').checked = GFX.泛光; $('fx-vignette').checked = GFX.暗角;
+  $('fx-ao').checked = GFX.环境光遮蔽; $('fx-headlight').checked = GFX.玩家头灯; $('fx-eyes').checked = GFX.丧尸红眼;
+  $('fx-stats').checked = GFX.显示性能面板;
+}
+setupPauseMenu();
 
 /* ============ 启动 ============ */
 setCenterMsg('', false);
