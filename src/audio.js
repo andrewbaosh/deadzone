@@ -71,10 +71,10 @@ const buffers = {};   // 解码后的 AudioBuffer
 const onsets = {};    // 每个采样的起音时刻（自动跳过前面的静音）
 
 const SOUND_FILES = {
-  pistol: '/sounds/pistol.wav',
-  rifle: '/sounds/rifle.ogg',
-  gunshot: '/sounds/gunshot.ogg',
-  sniper: '/sounds/sniper.mp3',
+  pistol: '/sounds/pistol.ogg',      // Walther PPQ 手枪
+  rifle: '/sounds/rifle.ogg',        // AR-15 步枪
+  shotgun: '/sounds/shotgun.ogg',    // Mossberg 泵动霰弹枪
+  sniper: '/sounds/sniper.ogg',      // Mosin Nagant 栓动狙击
   rocket: '/sounds/rocket.mp3',      // 火箭发射（长录音，运行时裁剪起音段）
   explosion: '/sounds/explosion.ogg',
 };
@@ -114,7 +114,7 @@ function playBuffer(key, rate, level, verb, dur) {
   src.playbackRate.value = rate;
   const g = ctx.createGain();
   g.gain.setValueAtTime(level, t);
-  g.gain.setValueAtTime(level, t + dur * 0.4);
+  g.gain.setValueAtTime(level, t + dur * 0.72);   // 保留更多枪声本体与尾音，别切太狠
   g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
   src.connect(g).connect(master);
   sendReverb(g, verb);
