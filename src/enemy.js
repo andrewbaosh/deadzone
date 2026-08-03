@@ -3,6 +3,8 @@ import { 敌人 as CFG } from './config.js';
 import { playGrowl, playDeath } from './audio.js';
 import { 打击感, 丧尸种类 } from './config/gameplay.js';
 
+import { zombieParts } from './graphics/voxel/zombie.js';
+
 const _navDir = new THREE.Vector3();   // 复用，避免每帧 new
 const _move = new THREE.Vector3();
 
@@ -70,28 +72,30 @@ export class Enemy {
     const s = this.scaleFactor;
     this.root = new THREE.Group();
 
-    const bodyMat = new THREE.MeshStandardMaterial({ color: T.colorBody, roughness: 0.9 });
-    const headMat = new THREE.MeshStandardMaterial({ color: T.colorHead, roughness: 0.85 });
+    // 顶点色由体素几何提供；材质基色白，emissive 留给受击闪红
+    const bodyMat = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.9 });
+    const headMat = new THREE.MeshStandardMaterial({ color: 0xffffff, vertexColors: true, roughness: 0.85 });
     this.bodyMat = bodyMat;
     this.headMat = headMat;
 
+    // 体素部件几何（按类型共享，只建一次）
+    const P = zombieParts(this.type, T.colorBody, T.colorHead);
+
     // 躯干
-    this.torso = new THREE.Mesh(new THREE.BoxGeometry(0.55 * s, 0.8 * s, 0.32 * s), bodyMat);
-    this.torso.position.y = 1.0 * s;
+    this.torso = new THREE.Mesh(P.torso, bodyMat);
+    this.torso.position.y = 1.0 * s; this.torso.scale.setScalar(s);
     // 头
-    this.head = new THREE.Mesh(new THREE.BoxGeometry(0.34 * s, 0.34 * s, 0.34 * s), headMat);
-    this.head.position.y = 1.6 * s;
-    // 眼睛由 EyeField(InstancedMesh) 统一渲染，这里不再各自建 mesh
+    this.head = new THREE.Mesh(P.head, headMat);
+    this.head.position.y = 1.6 * s; this.head.scale.setScalar(s);
+    // 眼睛由 EyeField(InstancedMesh) 统一渲染
     // 腿
-    const legGeo = new THREE.BoxGeometry(0.2 * s, 0.62 * s, 0.22 * s);
-    this.legL = new THREE.Mesh(legGeo, bodyMat); this.legL.position.set(-0.15 * s, 0.31 * s, 0);
-    this.legR = new THREE.Mesh(legGeo, bodyMat); this.legR.position.set(0.15 * s, 0.31 * s, 0);
+    this.legL = new THREE.Mesh(P.leg, bodyMat); this.legL.position.set(-0.15 * s, 0.31 * s, 0); this.legL.scale.setScalar(s);
+    this.legR = new THREE.Mesh(P.leg, bodyMat); this.legR.position.set(0.15 * s, 0.31 * s, 0); this.legR.scale.setScalar(s);
     // 手臂（前伸的丧尸姿势）
-    const armGeo = new THREE.BoxGeometry(0.16 * s, 0.55 * s, 0.16 * s);
-    this.armL = new THREE.Mesh(armGeo, bodyMat);
-    this.armL.position.set(-0.36 * s, 1.15 * s, 0.15 * s); this.armL.rotation.x = -1.3;
-    this.armR = new THREE.Mesh(armGeo, bodyMat);
-    this.armR.position.set(0.36 * s, 1.15 * s, 0.15 * s); this.armR.rotation.x = -1.3;
+    this.armL = new THREE.Mesh(P.arm, bodyMat);
+    this.armL.position.set(-0.36 * s, 1.15 * s, 0.15 * s); this.armL.rotation.x = -1.3; this.armL.scale.setScalar(s);
+    this.armR = new THREE.Mesh(P.arm, bodyMat);
+    this.armR.position.set(0.36 * s, 1.15 * s, 0.15 * s); this.armR.rotation.x = -1.3; this.armR.scale.setScalar(s);
 
     // 只有躯干/头投影：四肢阴影几乎看不出来，但会在每个阴影 pass 里重画一遍（省 draw call）
     for (const m of [this.torso, this.head, this.legL, this.legR, this.armL, this.armR]) {
