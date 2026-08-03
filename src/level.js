@@ -2,7 +2,10 @@ import * as THREE from 'three';
 import { 画面 } from './config.js';
 import { 色卡, GFX } from './config/graphics.js';
 import { greedyMesh } from './graphics/voxel/greedyMesh.js';
-import { makeTerrace, makeFountain, makeTree, makeTable } from './graphics/voxel/voxelModels.js';
+import {
+  makeTerrace, makeFountain, makeTree, makeTable,
+  makeStall, makeCrates, makePlanter, makeBarrel, makeStonePlatform,
+} from './graphics/voxel/voxelModels.js';
 import { 建筑风格 } from './graphics/voxel/styles.js';
 import { makeCobbleTextures } from './graphics/groundTexture.js';
 
@@ -48,6 +51,14 @@ export class Level {
     return mesh;
   }
 
+  /** 只登记碰撞盒，不生成网格（视觉交给体素道具） */
+  addCollider(x, y, z, w, h, d) {
+    this.colliders.push({
+      min: new THREE.Vector3(x - w / 2, y, z - d / 2),
+      max: new THREE.Vector3(x + w / 2, y + h, z + d / 2),
+    });
+  }
+
   build() {
     const S = this.size;
 
@@ -80,61 +91,37 @@ export class Level {
     this.addBox(-S, 0, 0, 1.2, wallH, S * 2, wallColor);
     this.addBox(S, 0, 0, 1.2, wallH, S * 2, wallColor);
 
-    // ---------- 中央建筑（带屋顶平台，可以爬上去） ----------
-    this.addBox(0, 0, 0, 12, 3.2, 12, 0x474e58);
-    // 东侧台阶：4 级，每级 0.8 米，走上去就能上屋顶
+    // ---------- 中央石台（可登高）：碰撞在此，视觉在 addVoxelShowcase ----------
+    this.addCollider(0, 0, 0, 12, 3.2, 12);
+    // 东侧台阶：4 级，每级 0.8 米，走上去就能上台
     for (let i = 0; i < 4; i++) {
-      this.addBox(9.6 - i * 1.4, 0, 0, 1.4, 0.8 * (i + 1), 4.4, 0x4d555f);
+      this.addBox(9.6 - i * 1.4, 0, 0, 1.4, 0.8 * (i + 1), 4.4, 0xa89a7c, { roughness: 0.9 });
     }
 
-    // ---------- 集装箱掩体 ----------
-    const containers = [
-      [-16, -14, 6, 2.6, 3, 0x6b4a3a, 0],
-      [-20, 8, 6, 2.6, 3, 0x3a5a6b, 0],
-      [17, -18, 6, 2.6, 3, 0x4a6b3a, Math.PI / 2],
-      [22, 12, 6, 2.6, 3, 0x6b3a4a, 0],
-      [-6, 22, 6, 2.6, 3, 0x5a5a3a, Math.PI / 2],
-      [8, -25, 6, 2.6, 3, 0x3a4a6b, 0],
-      [-28, -24, 6, 2.6, 3, 0x6b5a3a, Math.PI / 2],
-      [30, 28, 6, 2.6, 3, 0x455a45, 0],
+    // ---------- 掩体布局（只登记碰撞，视觉由体素道具提供）----------
+    // 高掩体：市集摊位
+    this.stallSpots = [
+      [-16, -14, 0], [-20, 8, 0], [17, -18, Math.PI / 2], [22, 12, 0],
+      [-6, 22, Math.PI / 2], [8, -25, 0], [-28, -24, Math.PI / 2], [30, 28, 0],
     ];
-    for (const [x, z, w, h, d, color, rot] of containers) {
-      const ww = rot ? d : w;
-      const dd = rot ? w : d;
-      this.addBox(x, 0, z, ww, h, dd, color, { metalness: 0.35, roughness: 0.6 });
+    for (const [x, z, rot] of this.stallSpots) {
+      const ww = rot ? 4.2 : 6.4, dd = rot ? 6.4 : 4.2;
+      this.addCollider(x, 0, z, ww, 1.5, dd);          // 只挡到腰，头顶是遮阳棚可穿视线
     }
-
-    // 叠一层的集装箱，形成高低差
-    this.addBox(-16, 2.6, -14, 5, 2.6, 2.6, 0x5a4030, { metalness: 0.35 });
-    this.addBox(22, 2.6, 12, 5, 2.6, 2.6, 0x5a3040, { metalness: 0.35 });
-
-    // ---------- 矮掩体（可以蹲下躲） ----------
-    const lowCovers = [
+    // 中掩体：板条箱堆
+    this.crateSpots = [[-16.5, -10.5], [22.5, 15.5], [-2, 12], [13, -8], [-25, 16], [27, -6]];
+    for (const [x, z] of this.crateSpots) this.addCollider(x, 0, z, 3.0, 2.5, 2.2);
+    // 矮掩体：石花坛（蹲下可躲）
+    this.planterSpots = [
       [-9, -8], [10, 9], [-12, 14], [14, -6], [0, -18],
       [-24, 2], [26, -2], [4, 26], [-30, 18], [20, 24],
     ];
-    for (const [x, z] of lowCovers) {
-      this.addBox(x, 0, z, 2.4, 1.15, 1.2, 0x4a5058, { roughness: 0.95 });
-    }
-
-    // ---------- 油桶（小掩体，视觉点缀） ----------
-    const barrelGeo = new THREE.CylinderGeometry(0.42, 0.42, 1.1, 12);
-    const barrelMat = new THREE.MeshStandardMaterial({ color: 0x8a4a2a, roughness: 0.7, metalness: 0.3 });
-    const barrelSpots = [
+    for (const [x, z] of this.planterSpots) this.addCollider(x, 0, z, 2.6, 1.2, 1.5);
+    // 小掩体：酒桶
+    this.barrelSpots = [
       [-5, 5], [-4.2, 6.2], [12, -12], [12.8, -11], [-18, -3], [25, 6], [-26, -12], [6, 15],
     ];
-    for (const [x, z] of barrelSpots) {
-      const b = new THREE.Mesh(barrelGeo, barrelMat);
-      b.position.set(x, 0.55, z);
-      b.castShadow = 画面.阴影;
-      b.receiveShadow = true;
-      this.scene.add(b);
-      this.hitMeshes.push(b);
-      this.colliders.push({
-        min: new THREE.Vector3(x - 0.42, 0, z - 0.42),
-        max: new THREE.Vector3(x + 0.42, 1.1, z + 0.42),
-      });
-    }
+    for (const [x, z] of this.barrelSpots) this.addCollider(x, 0, z, 1.0, 1.3, 1.0);
 
     // ---------- 丧尸的出生点：广场内圈（在联排小楼前方，别刷进楼里）----------
     const r = S - 16;
@@ -199,6 +186,14 @@ export class Level {
       const ter = makeTerrace(style, { units: s.units, unitW: uw, d: dd, baseSeed: s.seed });
       this.placeVoxel(ter, vs, s.at[0], s.at[1], s.rotY, { collide: true });
     }
+
+    // ---- 战斗掩体（体素化，统一南法市集风；碰撞已在 build() 登记）----
+    this.stallSpots.forEach(([x, z, rot], i) => this.placeVoxel(makeStall(i + 1), vs, x, z, rot, {}));
+    this.crateSpots.forEach(([x, z], i) => this.placeVoxel(makeCrates(i + 1), vs, x, z, (i % 4) * Math.PI / 2, {}));
+    this.planterSpots.forEach(([x, z], i) => this.placeVoxel(makePlanter(i + 1), vs, x, z, (i % 2) * Math.PI / 2, {}));
+    this.barrelSpots.forEach(([x, z]) => this.placeVoxel(makeBarrel(), vs, x, z, 0, {}));
+    // 中央石台（视觉），碰撞已在 build() 登记
+    this.placeVoxel(makeStonePlatform(76, 22), vs, 0, 0, 0, { rough: 0.9 });
 
     // 标志物
     this.placeVoxel(makeFountain(), vs, 14, 14, 0, { collide: true, rough: 0.7 });

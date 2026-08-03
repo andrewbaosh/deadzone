@@ -109,6 +109,132 @@ export function makeTree(seed = 1) {
   };
 }
 
+/* ---------------- 战斗掩体（南法市集风，替代灰盒子） ---------------- */
+
+/** 市集摊位：条纹遮阳棚 + 木架 + 货物（高掩体，约 6.4×3.5×4m） */
+export function makeStall(seed = 1) {
+  const w = 40, h = 22, d = 26;
+  const wood = 0x6b4f33, wood2 = 0x5a4029, post = 0x4a3625;
+  const awnA = pick([0xc0503f, 0x3f6f8a, 0x4a7a52, 0x9a6a3a], seed * 3 + 1);
+  const awnB = 0xe8dcc0;
+  const goods = [0xc4633a, 0x7a9a4a, 0xb8a03a, 0x8a4a6a, 0xd0a050, 0x5a8a7a];
+  return {
+    sx: w, sy: h, sz: d,
+    get(x, y, z) {
+      const edgeX = x < 3 || x >= w - 3, edgeZ = z < 3 || z >= d - 3;
+      // 遮阳棚（顶部，前沿下垂）
+      if (y >= h - 4) {
+        const drop = z >= d - 4 ? 1 : 0;             // 前沿多探出
+        if (y >= h - 1 - drop) return -1;
+        return (Math.floor(x / 4) & 1) ? awnA : awnB;   // 条纹
+      }
+      // 四角立柱
+      if (y < h - 4 && edgeX && edgeZ) return post;
+      // 台面
+      if (y >= 9 && y <= 10) { if (x >= 2 && x < w - 2 && z >= 2 && z < d - 2) return (x + z) & 1 ? wood : wood2; }
+      // 台下挡板（半高，可蹲）
+      if (y < 9 && y >= 1 && z >= d - 4 && x >= 2 && x < w - 2) return wood2;
+      // 台面上的货物（几堆箱子/筐）
+      if (y > 10 && y < 15) {
+        const gx = Math.floor((x - 4) / 7), gz = Math.floor((z - 5) / 8);
+        if (gx >= 0 && gz >= 0 && (x - 4) % 7 < 5 && (z - 5) % 8 < 6) {
+          const top = 11 + Math.floor(hash1(seed * 17 + gx * 5 + gz) * 3);
+          if (y <= top) return goods[Math.floor(hash1(seed * 29 + gx * 7 + gz * 3) * goods.length) % goods.length];
+        }
+      }
+      return -1;
+    },
+  };
+}
+
+/** 板条箱堆：木箱带板条缝（中掩体，约 3×2.5×2.2m） */
+export function makeCrates(seed = 1) {
+  const w = 19, h = 16, d = 14;
+  const A = 0x8a6a42, B = 0x7a5c38, edge = 0x5f4529;
+  const box = (x, y, z, bx, by, bz, bw, bh, bd) =>
+    x >= bx && x < bx + bw && y >= by && y < by + bh && z >= bz && z < bz + bd;
+  const skin = (x, y, z, bx, by, bz, bw, bh, bd) => {
+    const lx = x - bx, ly = y - by, lz = z - bz;
+    if (lx < 1 || ly < 1 || lz < 1 || lx >= bw - 1 || ly >= bh - 1 || lz >= bd - 1) return edge;  // 棱
+    return (Math.floor(ly / 3) & 1) ? A : B;   // 板条
+  };
+  return {
+    sx: w, sy: h, sz: d,
+    get(x, y, z) {
+      // 底层两个箱 + 上层一个偏移箱
+      if (box(x, y, z, 0, 0, 0, 10, 9, 10)) return skin(x, y, z, 0, 0, 0, 10, 9, 10);
+      if (box(x, y, z, 10, 0, 2, 9, 8, 9)) return skin(x, y, z, 10, 0, 2, 9, 8, 9);
+      const ox = seed % 2 ? 3 : 6;
+      if (box(x, y, z, ox, 9, 1, 9, 7, 9)) return skin(x, y, z, ox, 9, 1, 9, 7, 9);
+      return -1;
+    },
+  };
+}
+
+/** 石花坛：石砌边 + 泥土 + 花草（矮掩体，蹲下可躲，约 2.6×1.2×1.4m） */
+export function makePlanter(seed = 1) {
+  const w = 16, h = 8, d = 9;
+  const stone = 0xa89878, stone2 = 0x968764, soil = 0x3a2a1c;
+  const leaf = [0x4a6f38, 0x3f5f30, 0x567d42];
+  const bloom = [0xb04a6a, 0xc08a3a, 0x8a5aa0, 0xc4544a];
+  return {
+    sx: w, sy: h, sz: d,
+    get(x, y, z) {
+      const rim = x < 2 || z < 2 || x >= w - 2 || z >= d - 2;
+      if (y < 5) return rim ? ((x + z + y) & 1 ? stone : stone2) : (y >= 3 ? soil : stone2);
+      if (y === 5 && rim) return stone;               // 压顶
+      if (y >= 5 && !rim) {                            // 花草
+        const r = hash2(x * 3 + seed, z * 5 + y);
+        if (y === 5) return r < 0.85 ? leaf[(r * 997 | 0) % leaf.length] : -1;
+        if (y === 6) return r < 0.5 ? leaf[(r * 991 | 0) % leaf.length] : (r < 0.62 ? bloom[(r * 983 | 0) % bloom.length] : -1);
+        if (y === 7) return r < 0.18 ? bloom[(r * 977 | 0) % bloom.length] : -1;
+      }
+      return -1;
+    },
+  };
+}
+
+/** 橡木酒桶：桶身 + 铁箍（小掩体，约 0.9×1.2m） */
+export function makeBarrel() {
+  const w = 7, h = 8, d = 7, R = w / 2;
+  const oak = 0x7a5230, oak2 = 0x6a4526, band = 0x4a4a50;
+  return {
+    sx: w, sy: h, sz: d,
+    get(x, y, z) {
+      const dx = x - R + 0.5, dz = z - R + 0.5;
+      const bulge = 1 + 0.28 * Math.sin((y / (h - 1)) * Math.PI);   // 中间鼓
+      const r = Math.hypot(dx, dz) / bulge;
+      if (r > R - 0.9) return -1;
+      if (y === 1 || y === h - 2) return band;                       // 铁箍
+      if (y === 0 || y === h - 1) return oak2;                       // 桶盖
+      return ((x + z) & 1) ? oak : oak2;
+    },
+  };
+}
+
+/** 中央石台：可登高的石砌平台 + 栏杆（替代灰方块中央建筑） */
+export function makeStonePlatform(size = 76, hgt = 22) {
+  const stone = 0xb0a284, stone2 = 0x9e9074, cap = 0xc0b294, dark = 0x8a7c60;
+  return {
+    sx: size, sy: hgt, sz: size,
+    get(x, y, z) {
+      const edge = x < 2 || z < 2 || x >= size - 2 || z >= size - 2;
+      const top = hgt - 6;
+      if (y < top) {
+        if (y === top - 1) return cap;                              // 台沿压顶
+        if (edge) return (Math.floor(y / 3) + x + z) & 1 ? stone : stone2;   // 砌块感外墙
+        return dark;                                                 // 内部（看不见）
+      }
+      // 栏杆：立柱 + 扶手（留出东侧台阶口）
+      const openEast = x >= size - 3 && z > size * 0.35 && z < size * 0.65;
+      if (openEast) return -1;
+      if (!edge) return -1;
+      if (y === hgt - 1) return cap;                                 // 扶手
+      return (x % 6 < 2 || z % 6 < 2) ? stone : -1;                  // 栏杆柱
+    },
+  };
+}
+
 /** 露天咖啡桌 + 红桌布 + 两把椅子 */
 export function makeTable() {
   const s = 16, h = 11, R = s / 2;
