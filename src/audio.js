@@ -385,6 +385,24 @@ export function playExplosion() {
   }
 }
 
+/** 拾取：上扬的两声"叮咚"（kind: 'ammo' | 'health'） */
+export function playPickup(kind = 'ammo') {
+  if (!ctx) return;
+  const t = now();
+  const base = kind === 'health' ? 520 : 700;
+  [0, 0.07].forEach((off, i) => {
+    const o = ctx.createOscillator();
+    o.type = 'triangle';
+    o.frequency.setValueAtTime(base * (i ? 1.5 : 1), t + off);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t + off);
+    g.gain.linearRampToValueAtTime(0.22, t + off + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + off + 0.16);
+    o.connect(g).connect(master);
+    o.start(t + off); o.stop(t + off + 0.18);
+  });
+}
+
 /** 低血量心跳（两下"咚·咚"） */
 export function playHeartbeat() {
   if (!ctx) return;

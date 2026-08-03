@@ -19,8 +19,9 @@ import { PostFX } from './graphics/PostFX.js';
 import { DynamicLights } from './graphics/DynamicLights.js';
 import { EyeField } from './graphics/EyeField.js';
 import { makeDetailNormal } from './graphics/detailTexture.js';
-import { 打击感, 波次曲线, 音效氛围 } from './config/gameplay.js';
-import { playHeartbeat } from './audio.js';
+import { 打击感, 波次曲线, 音效氛围, 掉落, 受击指示 } from './config/gameplay.js';
+import { playHeartbeat, playPickup } from './audio.js';
+import { Pickups } from './pickups.js';
 
 /* ============ 渲染基础 ============ */
 const canvas = document.getElementById('game');
@@ -78,6 +79,7 @@ const player = new Player(camera, level);
 const weapons = new WeaponSystem(camera, scene);
 const effects = new Effects(scene, camera);
 const extraction = new Extraction(scene);
+const pickups = new Pickups(scene);
 const raycaster = new THREE.Raycaster();
 
 let enemies = [];
@@ -132,6 +134,8 @@ const hud = {
   exText: el('extract-status').querySelector('.ex-text'),
   exBar: el('extract-status').querySelector('.ex-bar'),
   exFill: el('extract-status').querySelector('.ex-fill'),
+  hitDirs: el('hit-dirs'),
+  pickupToast: el('pickup-toast'),
 };
 
 function setCenterMsg(html, show = true) {
@@ -238,6 +242,11 @@ function startFreshGame() {
   enemies = [];
   for (const r of rockets) r.remove();
   rockets = [];
+  pickups.clear();
+  for (const h of hitDirs) h.el.remove();
+  hitDirs.length = 0;
+  toastTimer = 0;
+  hud.pickupToast.style.opacity = '0';
   shakeAmount = 0;
   score = 0; wave = 0; kills = 0;
   player.respawn();
@@ -579,6 +588,8 @@ function onKill(en, isHead) {
   );
   // 击杀顿帧（微时停），爆头更久一点
   if (打击感.受击顿帧) hitstopTimer = Math.max(hitstopTimer, (打击感.顿帧毫秒 / 1000) * (isHead ? 1.5 : 1));
+  // 掉落弹药/医疗包（肉盾/爆炸尸算精英，掉率更高）
+  pickups.dropFrom(en.root.position, en.type === '肉盾' || en.type === '爆炸');
 }
 
 /* ============ 命中标记 ============ */
@@ -591,13 +602,45 @@ function showHitmarker(isHead) {
 
 /* ============ 玩家受伤 ============ */
 let damageFlashTimer = 0;
-function damagePlayer(dmg, time) {
+function damagePlayer(dmg, time, srcPos) {
   player.takeDamage(dmg, time);
   playPlayerHurt();
   damageFlashTimer = 0.4;
   // 被咬抖屏（强度随伤害）
   if (打击感.镜头抖动) addShake(Math.min(0.35, 0.06 + dmg * 0.006) * 打击感.抖动强度);
+  if (srcPos) showHitDirection(srcPos);
   if (!player.alive) onPlayerDeath();
+}
+
+/* ============ 受击方向指示器 ============ */
+const hitDirs = [];
+function showHitDirection(srcPos) {
+  if (!受击指示.启用) return;
+  // 伤害来源相对玩家朝向的角度（0=正前方，顺时针）
+  const dx = srcPos.x - player.pos.x, dz = srcPos.z - player.pos.z;
+  const world = Math.atan2(dx, dz);          // 与 player.yaw 同一约定
+  const rel = world - (player.yaw + Math.PI);
+  const el = document.createElement('div');
+  el.className = 'hitdir';
+  el.style.transform = `rotate(${-rel}rad)`;
+  hud.hitDirs.appendChild(el);
+  hitDirs.push({ el, life: 受击指示.持续时间, max: 受击指示.持续时间 });
+}
+
+function updateHitDirs(dt) {
+  for (let i = hitDirs.length - 1; i >= 0; i--) {
+    const h = hitDirs[i];
+    h.life -= dt;
+    if (h.life <= 0) { h.el.remove(); hitDirs.splice(i, 1); continue; }
+    h.el.style.opacity = String(Math.min(1, h.life / h.max * 1.6));
+  }
+}
+
+/* ============ 拾取提示 ============ */
+let toastTimer = 0;
+function showToast(text) {
+  hud.pickupToast.textContent = text;
+  toastTimer = 1.5;
 }
 
 function onPlayerDeath() {
@@ -719,12 +762,27 @@ function frame() {
         playExplosion();
         if (打击感.镜头抖动) addShake(0.3 * 打击感.抖动强度);
         const pd = player.pos.distanceTo(p);
-        if (pd < en.blastRange && player.alive) damagePlayer(en.blastDmg * (1 - pd / en.blastRange), time);
+        if (pd < en.blastRange && player.alive) damagePlayer(en.blastDmg * (1 - pd / en.blastRange), time, p);
       }
       const res = en.update(simDt, player.pos, level, enemies, i);
       if (res === false) { en.remove(); enemies.splice(i, 1); continue; }
-      if (res && res.didAttack > 0) damagePlayer(res.didAttack, time);
+      if (res && res.didAttack > 0) damagePlayer(res.didAttack, time, en.root.position);
       en.faceBar(camera);
+    }
+
+    // 掉落拾取
+    const got = pickups.update(dt, player.pos);
+    if (got) {
+      playPickup(got.kind);
+      if (got.kind === 'ammo') {
+        const a = weapons.ammo[weapons.current];
+        const cap = (weapons.cfg.备弹 || 90) * 1.5;
+        a.reserve = Math.min(cap, a.reserve + 掉落.弹药数量);
+        showToast(`+${掉落.弹药数量} 弹药`);
+      } else {
+        player.hp = Math.min(player.maxHp, player.hp + 掉落.医疗数量);
+        showToast(`+${掉落.医疗数量} 生命`);
+      }
     }
 
     // 自动回血
@@ -738,6 +796,7 @@ function frame() {
     dynamicLights.update(dt);
     eyeField.update(enemies);
     effects.update(dt);
+    updateHitDirs(dt);
     updateHUD(dt);
   }
 
@@ -771,6 +830,13 @@ function updateHUD(dt) {
   if (hitmarkerTimer > 0) {
     hitmarkerTimer -= dt;
     hud.hitmarker.style.opacity = String(Math.max(0, hitmarkerTimer / 0.12));
+  }
+
+  // 拾取提示淡出
+  if (toastTimer > 0) {
+    toastTimer -= dt;
+    hud.pickupToast.style.opacity = String(Math.min(1, toastTimer / 0.5));
+    hud.pickupToast.style.transform = `translateX(-50%) translateY(${-(1.5 - toastTimer) * 14}px)`;
   }
 
   // 低血量心跳（音效 + 画面脉动）
@@ -899,6 +965,9 @@ window.__game = {
   get debrisActive() { return effects.debrisState ? effects.debrisState.filter((s) => s.active).length : 0; },
   get hitstop() { return hitstopTimer; },
   get eyeCount() { return eyeField.mesh.count; },
+  get pickupCount() { return pickups.active.length; },
+  get pickupsActive() { return pickups.active; },
+  testDamageFrom(x, z) { damagePlayer(5, clock.elapsedTime, new THREE.Vector3(x, 0, z)); return hitDirs.length; },
   spawnType(type, n = 4, dist = 10) {
     const fwd = new THREE.Vector3(); camera.getWorldDirection(fwd); fwd.y = 0; fwd.normalize();
     const right = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0, 1, 0)).normalize();

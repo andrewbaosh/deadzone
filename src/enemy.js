@@ -90,8 +90,9 @@ export class Enemy {
     this.armR = new THREE.Mesh(armGeo, bodyMat);
     this.armR.position.set(0.36 * s, 1.15 * s, 0.15 * s); this.armR.rotation.x = -1.3;
 
+    // 只有躯干/头投影：四肢阴影几乎看不出来，但会在每个阴影 pass 里重画一遍（省 draw call）
     for (const m of [this.torso, this.head, this.legL, this.legR, this.armL, this.armR]) {
-      m.castShadow = true;
+      m.castShadow = (m === this.torso || m === this.head);
       this.root.add(m);
     }
 

@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { 画面 } from './config.js';
 import { 色卡, GFX } from './config/graphics.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { greedyMesh } from './graphics/voxel/greedyMesh.js';
 import {
   makeTerrace, makeFountain, makeTree, makeTable,
@@ -141,12 +142,28 @@ export class Level {
     if (GFX.体素细节 !== false) this.addVoxelShowcase();
   }
 
-  /** 一个物件体素模型 → 合并网格 → 放进场景（可选碰撞盒）。rotY 只用 0/±90/180。 */
+  /**
+   * 一个物件体素模型 → 合并网格 → 放进场景（可选碰撞盒）。rotY 只用 0/±90/180。
+   * opts.batch: 传字符串则不单独建 mesh，而是攒进该批次，最后 flushBatches() 合成一个网格
+   * （大幅降 draw call；仅适用于静态、同材质参数的道具）。
+   */
   placeVoxel(vol, vs, wx, wz, rotY = 0, opts = {}) {
     const W = vol.sx * vs, H = vol.sy * vs, D = vol.sz * vs;
     // 生成时把体居中在 X、front(+z) 在 +D/2，方便旋转朝向
     const res = greedyMesh(vol, vs, new THREE.Vector3(-W / 2, 0, -D / 2));
     this._voxTris = (this._voxTris || 0) + res.tris;
+
+    if (opts.batch) {
+      // 把变换烘进几何，攒批
+      const g = res.geometry;
+      g.rotateY(rotY);
+      g.translate(wx, opts.y ?? 0, wz);
+      this._batches = this._batches || {};
+      (this._batches[opts.batch] = this._batches[opts.batch] || { geos: [], opts }).geos.push(g);
+      if (opts.collide) this._addRotatedCollider(wx, wz, W, H, D, rotY);
+      return null;
+    }
+
     const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: opts.rough ?? 0.82, metalness: 0 });
     const m = new THREE.Mesh(res.geometry, mat);
     m.position.set(wx, opts.y ?? 0, wz);
@@ -155,16 +172,37 @@ export class Level {
     m.receiveShadow = true;
     this.scene.add(m);
     this.hitMeshes.push(m);
-    if (opts.collide) {
-      // 旋转后的世界足迹（0/±90/180 都是轴对齐）
-      const halfW = (Math.abs(Math.cos(rotY)) * W + Math.abs(Math.sin(rotY)) * D) / 2;
-      const halfD = (Math.abs(Math.sin(rotY)) * W + Math.abs(Math.cos(rotY)) * D) / 2;
-      this.colliders.push({
-        min: new THREE.Vector3(wx - halfW, 0, wz - halfD),
-        max: new THREE.Vector3(wx + halfW, H, wz + halfD),
-      });
-    }
+    if (opts.collide) this._addRotatedCollider(wx, wz, W, H, D, rotY);
     return m;
+  }
+
+  _addRotatedCollider(wx, wz, W, H, D, rotY) {
+    // 旋转后的世界足迹（0/±90/180 都是轴对齐）
+    const halfW = (Math.abs(Math.cos(rotY)) * W + Math.abs(Math.sin(rotY)) * D) / 2;
+    const halfD = (Math.abs(Math.sin(rotY)) * W + Math.abs(Math.cos(rotY)) * D) / 2;
+    this.colliders.push({
+      min: new THREE.Vector3(wx - halfW, 0, wz - halfD),
+      max: new THREE.Vector3(wx + halfW, H, wz + halfD),
+    });
+  }
+
+  /** 把各批次几何合并成单个网格，大幅降低 draw call */
+  flushBatches() {
+    if (!this._batches) return;
+    for (const [name, b] of Object.entries(this._batches)) {
+      if (!b.geos.length) continue;
+      const merged = mergeGeometries(b.geos, false);
+      b.geos.forEach((g) => g.dispose());
+      if (!merged) continue;
+      const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: b.opts.rough ?? 0.82, metalness: 0 });
+      const m = new THREE.Mesh(merged, mat);
+      m.castShadow = b.opts.cast ?? true;
+      m.receiveShadow = true;
+      m.name = 'batch_' + name;
+      this.scene.add(m);
+      this.hitMeshes.push(m);
+    }
+    this._batches = null;
   }
 
   /** 铺开整条南法小街：四面联排小楼围合 + 喷泉/梧桐/咖啡桌等标志物。视觉盖在碰撞上，不动打枪逻辑。 */
@@ -184,24 +222,26 @@ export class Level {
     ];
     for (const s of sides) {
       const ter = makeTerrace(style, { units: s.units, unitW: uw, d: dd, baseSeed: s.seed });
-      this.placeVoxel(ter, vs, s.at[0], s.at[1], s.rotY, { collide: true });
+      this.placeVoxel(ter, vs, s.at[0], s.at[1], s.rotY, { collide: true, batch: 'terraces' });
     }
 
     // ---- 战斗掩体（体素化，统一南法市集风；碰撞已在 build() 登记）----
-    this.stallSpots.forEach(([x, z, rot], i) => this.placeVoxel(makeStall(i + 1), vs, x, z, rot, {}));
-    this.crateSpots.forEach(([x, z], i) => this.placeVoxel(makeCrates(i + 1), vs, x, z, (i % 4) * Math.PI / 2, {}));
-    this.planterSpots.forEach(([x, z], i) => this.placeVoxel(makePlanter(i + 1), vs, x, z, (i % 2) * Math.PI / 2, {}));
-    this.barrelSpots.forEach(([x, z]) => this.placeVoxel(makeBarrel(), vs, x, z, 0, {}));
+    // 同类道具攒成一个批次 → 合成单网格，大幅降 draw call
+    this.stallSpots.forEach(([x, z, rot], i) => this.placeVoxel(makeStall(i + 1), vs, x, z, rot, { batch: 'stalls' }));
+    this.crateSpots.forEach(([x, z], i) => this.placeVoxel(makeCrates(i + 1), vs, x, z, (i % 4) * Math.PI / 2, { batch: 'crates' }));
+    this.planterSpots.forEach(([x, z], i) => this.placeVoxel(makePlanter(i + 1), vs, x, z, (i % 2) * Math.PI / 2, { batch: 'planters' }));
+    this.barrelSpots.forEach(([x, z]) => this.placeVoxel(makeBarrel(), vs, x, z, 0, { batch: 'barrels' }));
     // 中央石台（视觉），碰撞已在 build() 登记
-    this.placeVoxel(makeStonePlatform(76, 22), vs, 0, 0, 0, { rough: 0.9 });
+    this.placeVoxel(makeStonePlatform(76, 22), vs, 0, 0, 0, { batch: 'props', rough: 0.9 });
 
     // 标志物
-    this.placeVoxel(makeFountain(), vs, 14, 14, 0, { collide: true, rough: 0.7 });
+    this.placeVoxel(makeFountain(), vs, 14, 14, 0, { batch: 'props', collide: true });
     const treeSpots = [[-12, 16], [20, 12], [-24, -6], [24, -18], [-2, -22], [10, -16]];
-    treeSpots.forEach(([x, z], i) => this.placeVoxel(makeTree(i + 1), vs, x, z, 0, { collide: false, cast: true }));
+    treeSpots.forEach(([x, z], i) => this.placeVoxel(makeTree(i + 1), vs, x, z, 0, { batch: 'trees' }));
     const tableSpots = [[-16, 12], [-10, 15], [18, 6], [7, 17]];
-    tableSpots.forEach(([x, z]) => this.placeVoxel(makeTable(), vs, x, z, 0, { cast: true }));
+    tableSpots.forEach(([x, z]) => this.placeVoxel(makeTable(), vs, x, z, 0, { batch: 'tables' }));
 
+    this.flushBatches();
     this.voxelStats = { tris: this._voxTris };
   }
 
