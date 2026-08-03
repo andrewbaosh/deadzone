@@ -751,6 +751,9 @@ function frame() {
       }
     }
 
+    // 流场寻路：每帧从玩家位置铺一次距离场，所有僵尸共用
+    if (enemies.length && level.flow) level.flow.compute(player.pos.x, player.pos.z);
+
     // 敌人
     for (let i = enemies.length - 1; i >= 0; i--) {
       const en = enemies[i];
@@ -968,6 +971,20 @@ window.__game = {
   get pickupCount() { return pickups.active.length; },
   get pickupsActive() { return pickups.active; },
   testDamageFrom(x, z) { damagePlayer(5, clock.elapsedTime, new THREE.Vector3(x, 0, z)); return hitDirs.length; },
+  simPath(sx, sz, px, pz, steps = 900) {
+    const en = new Enemy(scene, new THREE.Vector3(sx, 0, sz), 1);
+    en.speed = 4;
+    enemies.push(en);
+    const pp = new THREE.Vector3(px, 1.7, pz);
+    const path = [];
+    for (let i = 0; i < steps; i++) {
+      if (level.flow) level.flow.compute(px, pz);
+      en.update(1 / 60, pp, level, enemies, enemies.indexOf(en));
+      if (i % 150 === 0) path.push([+en.root.position.x.toFixed(1), +en.root.position.z.toFixed(1)]);
+    }
+    const p = en.root.position;
+    return { finalDist: +Math.hypot(p.x - px, p.z - pz).toFixed(2), path };
+  },
   simClimb(steps = 500) {
     const en = new Enemy(scene, new THREE.Vector3(12, 0, 1), 1);
     enemies.push(en);

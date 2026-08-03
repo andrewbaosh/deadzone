@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { 画面 } from './config.js';
 import { 色卡, GFX } from './config/graphics.js';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { FlowField } from './flowfield.js';
 import { greedyMesh } from './graphics/voxel/greedyMesh.js';
 import {
   makeTerrace, makeFountain, makeTree, makeTable,
@@ -133,6 +134,8 @@ export class Level {
 
     this.buildLights();
     this.buildAmbiance();
+    // 所有碰撞盒登记完后，建流场寻路网格
+    this.flow = new FlowField(this.colliders, this.size, 1.6);
   }
 
   /** 暖光窗户（一个 InstancedMesh，1 draw call）+ 街灯，营造黄昏温馨氛围 */

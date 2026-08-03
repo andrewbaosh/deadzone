@@ -3,6 +3,9 @@ import { 敌人 as CFG } from './config.js';
 import { playGrowl, playDeath } from './audio.js';
 import { 打击感, 丧尸种类 } from './config/gameplay.js';
 
+const _navDir = new THREE.Vector3();   // 复用，避免每帧 new
+const _move = new THREE.Vector3();
+
 /**
  * 丧尸。低多边形人形，分头/身两个受击部位。
  * 会朝玩家走、绕开障碍、靠近后攻击。被打中会闪红+击退。
@@ -270,8 +273,16 @@ export class Enemy {
       }
     }
 
-    // 移动：朝玩家 + 避开其它丧尸（防止全部挤成一坨）
-    const move = toPlayer.clone();
+    // 导航方向：远处用流场绕开建筑找通路，靠近或流场无解时直冲玩家
+    let navX = toPlayer.x, navZ = toPlayer.z;
+    if (level.flow && dist > 3 && level.flow.dir(pos.x, pos.z, _navDir)) {
+      // 流向为主，混一点直冲，走起来更顺不卡格
+      navX = _navDir.x * 0.8 + toPlayer.x * 0.2;
+      navZ = _navDir.z * 0.8 + toPlayer.z * 0.2;
+    }
+
+    // 移动：沿导航方向 + 避开其它丧尸（防止全部挤成一坨）
+    const move = _move.set(navX, 0, navZ);
     for (let j = 0; j < allEnemies.length; j++) {
       if (j === idx) continue;
       const other = allEnemies[j];
