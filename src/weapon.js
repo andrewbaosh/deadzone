@@ -122,10 +122,10 @@ export class WeaponSystem {
 
   finishReload() {
     const a = this.ammo[this.current];
-    const need = this.cfg.弹匣 - a.mag;
-    const take = Math.min(need, a.reserve);
-    a.mag += take;
-    a.reserve -= take;
+    // 换弹丢弃弹夹里剩余的子弹（相当于抛弃），从备弹里换一整夹
+    const load = Math.min(this.cfg.弹匣, a.reserve);
+    a.mag = load;
+    a.reserve -= load;
     this.reloading = false;
     playReload(1);
   }
@@ -184,7 +184,9 @@ export class WeaponSystem {
 
     const a = this.ammo[this.current];
     if (a.mag <= 0) {
-      if (!this.triggerConsumed) { playDryFire(); this.triggerConsumed = true; }
+      // 空仓：有备弹就自动换弹，没备弹才空响
+      if (a.reserve > 0) this.startReload();
+      else if (!this.triggerConsumed) { playDryFire(); this.triggerConsumed = true; }
       return null;
     }
 
@@ -192,6 +194,8 @@ export class WeaponSystem {
     this.triggerConsumed = true;
     a.mag--;
     this.fireCooldown = 60 / c.射速;
+    // 打空最后一发：自动换弹
+    if (a.mag <= 0 && a.reserve > 0) this.startReload();
 
     // 火光
     this.muzzleFlash.visible = true;

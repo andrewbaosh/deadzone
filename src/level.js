@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { 画面 } from './config.js';
-import { 色卡 } from './config/graphics.js';
+import { 色卡, GFX } from './config/graphics.js';
 
 /**
  * 关卡：一个带掩体的废弃厂区。
@@ -136,13 +136,88 @@ export class Level {
     }
 
     this.buildLights();
+    this.buildAmbiance();
+  }
+
+  /** 暖光窗户（一个 InstancedMesh，1 draw call）+ 街灯，营造黄昏温馨氛围 */
+  buildAmbiance() {
+    if (GFX.暖窗 !== false) this.addWindows();
+    if (GFX.街灯 !== false) this.addLamps();
+  }
+
+  addWindows() {
+    const S = this.size;
+    const wins = [];  // {x,y,z,ry}
+    // 一面墙上按网格铺窗
+    const row = (cx, cy, cz, ry, nx, ny, dx, dy) => {
+      for (let i = 0; i < nx; i++) {
+        for (let j = 0; j < ny; j++) {
+          const ox = (i - (nx - 1) / 2) * dx;
+          const oy = j * dy;
+          // 沿墙面切向偏移（ry 决定墙朝向）
+          const sx = Math.cos(ry), sz = Math.sin(ry);
+          wins.push({ x: cx + ox * sx, y: cy + oy, z: cz + ox * sz, ry });
+        }
+      }
+    };
+    // 中央建筑四面（面朝外）
+    row(0, 1.0, 6.05, 0, 5, 3, 1.6, 0.75);
+    row(0, 1.0, -6.05, Math.PI, 5, 3, 1.6, 0.75);
+    row(6.05, 1.0, 0, Math.PI / 2, 5, 3, 1.6, 0.75);
+    row(-6.05, 1.0, 0, -Math.PI / 2, 5, 3, 1.6, 0.75);
+    // 四周高墙内侧（面朝场内），窗户在高处
+    row(0, 2.2, -S + 0.7, 0, 11, 3, 3.2, 1.3);
+    row(0, 2.2, S - 0.7, Math.PI, 11, 3, 3.2, 1.3);
+    row(-S + 0.7, 2.2, 0, Math.PI / 2, 11, 3, 3.2, 1.3);
+    row(S - 0.7, 2.2, 0, -Math.PI / 2, 11, 3, 3.2, 1.3);
+
+    const geo = new THREE.PlaneGeometry(0.62, 0.62);
+    const mat = new THREE.MeshBasicMaterial({ color: 0xffd9a0, toneMapped: false });
+    const mesh = new THREE.InstancedMesh(geo, mat, wins.length);
+    mesh.frustumCulled = false;
+    const dummy = new THREE.Object3D();
+    const lit = new THREE.Color(0xffd9a0);
+    const warm = new THREE.Color(0xffb060);
+    const dark = new THREE.Color(0x241a12);
+    for (let i = 0; i < wins.length; i++) {
+      const w = wins[i];
+      dummy.position.set(w.x, w.y, w.z);
+      dummy.rotation.set(0, w.ry + Math.PI, 0);   // 面片法线朝外
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+      const r = Math.random();
+      mesh.setColorAt(i, r < 0.55 ? lit : r < 0.75 ? warm : dark);   // 有亮有暗才自然
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+    if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+    this.scene.add(mesh);
+    this.windows = mesh;
+  }
+
+  addLamps() {
+    const postMat = new THREE.MeshStandardMaterial({ color: 0x1a1a1e, roughness: 0.6, metalness: 0.5 });
+    const headMat = new THREE.MeshBasicMaterial({ color: 色卡.头灯, toneMapped: false });
+    const spots = [[-14, 12], [16, -10], [10, 14], [-20, -6]];
+    for (const [x, z] of spots) {
+      const post = new THREE.Mesh(new THREE.BoxGeometry(0.18, 3.2, 0.18), postMat);
+      post.position.set(x, 1.6, z);
+      post.castShadow = true;
+      this.scene.add(post);
+      const head = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.28, 0.4), headMat);
+      head.position.set(x, 3.35, z);
+      this.scene.add(head);
+      // 暖色点光（短距离，营造暖光池）
+      const lamp = new THREE.PointLight(色卡.头灯, 6, 11, 2);
+      lamp.position.set(x, 3.2, z);
+      this.scene.add(lamp);
+    }
   }
 
   buildLights() {
     // 半球光：上冷天光 / 下暖地面反弹（可读的黄昏，不再纯黑）
-    this.scene.add(new THREE.HemisphereLight(0x8899cc, 0x6a5238, 1.05));
+    this.scene.add(new THREE.HemisphereLight(0x9aa8d0, 0x7a5e40, 1.6));
     // 环境光补暗部（暖一点）
-    this.scene.add(new THREE.AmbientLight(0x6a6478, 0.35));
+    this.scene.add(new THREE.AmbientLight(0x7a728a, 0.5));
     // 一盏暖色补光模拟街灯/室内暖光的整体氛围
     const warmFill = new THREE.DirectionalLight(色卡.暖焦点, 0.5);
     warmFill.position.set(-20, 24, -14);
