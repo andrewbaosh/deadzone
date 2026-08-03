@@ -254,10 +254,13 @@ export class Enemy {
     const targetAngle = Math.atan2(toPlayer.x, toPlayer.z);
     this.root.rotation.y = targetAngle;
 
-    // 攻击
+    // 是否和玩家在同一层（playerPos 是眼睛高度，减去约 1.7 得脚下楼层）
+    const sameLevel = Math.abs((playerPos.y - 1.7) - pos.y) < 1.4;
+
+    // 攻击（必须同层，避免从楼下/楼上隔空咬）
     this.attackTimer -= dt;
     let didAttack = 0;
-    if (dist <= CFG.攻击距离 + this.scaleFactor * 0.3) {
+    if (sameLevel && dist <= CFG.攻击距离 + this.scaleFactor * 0.3) {
       if (this.attackTimer <= 0) {
         this.attackTimer = CFG.攻击间隔;
         didAttack = this.damage;
@@ -283,16 +286,20 @@ export class Enemy {
     }
     move.normalize();
 
-    // 距离远时才移动（近身就停下打）
-    const speed = dist > CFG.攻击距离 ? this.speed : 0;
+    // 只有"同层且已贴近"才停下打；玩家在楼上时继续移动去爬楼
+    const speed = (dist <= CFG.攻击距离 && sameLevel) ? 0 : this.speed;
     const prev = pos.clone();
     pos.x += move.x * speed * dt + this.knockback.x * dt;
     pos.z += move.z * speed * dt + this.knockback.z * dt;
     this.knockback.multiplyScalar(1 - Math.min(1, dt * 8));
 
-    // 撞墙检测：滑动
+    // 撞墙检测：滑动（可跨上矮台阶）
     this.resolveCollision(level, prev);
-    pos.y = 0;
+
+    // 跟随地面高度：踩台阶上高台，走下边缘会落下
+    const gy = this.groundHeight(level);
+    if (gy >= pos.y - 0.02) { pos.y = gy; this.fallV = 0; }        // 站上/踏台阶
+    else { this.fallV = (this.fallV || 0) - 22 * dt; pos.y = Math.max(gy, pos.y + this.fallV * dt); }
 
     // 走路动画（腿和身体上下晃）
     this.phase += dt * speed * 2.2;
@@ -325,18 +332,35 @@ export class Enemy {
   resolveCollision(level, prev) {
     const pos = this.root.position;
     const r = this.scaleFactor * 0.3;
+    const footY = pos.y;
     for (const c of level.colliders) {
+      if (c.max.y <= 0.5) continue;                    // 地面级，忽略
+      if (footY >= c.max.y - 0.02) continue;           // 已站在其上/更高，可横穿顶面
+      if (c.max.y - footY <= 0.9) continue;            // 可跨上的矮台阶，不挡
       const cx = Math.max(c.min.x, Math.min(pos.x, c.max.x));
       const cz = Math.max(c.min.z, Math.min(pos.z, c.max.z));
       const dx = pos.x - cx;
       const dz = pos.z - cz;
       const d2 = dx * dx + dz * dz;
-      if (d2 < r * r && c.max.y > 0.5) {
+      if (d2 < r * r) {
         const d = Math.sqrt(d2) || 0.0001;
         pos.x = cx + (dx / d) * r;
         pos.z = cz + (dz / d) * r;
       }
     }
+  }
+
+  /** 脚下地面高度：踩在其上/可跨上的最高碰撞盒顶面（否则 0） */
+  groundHeight(level) {
+    const pos = this.root.position;
+    const r = this.scaleFactor * 0.3;
+    let g = 0;
+    for (const c of level.colliders) {
+      if (pos.x > c.min.x - r && pos.x < c.max.x + r && pos.z > c.min.z - r && pos.z < c.max.z + r) {
+        if (pos.y >= c.max.y - 0.9 && c.max.y > g) g = c.max.y;
+      }
+    }
+    return g;
   }
 
   // 让血条永远面向相机

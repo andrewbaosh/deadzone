@@ -968,6 +968,15 @@ window.__game = {
   get pickupCount() { return pickups.active.length; },
   get pickupsActive() { return pickups.active; },
   testDamageFrom(x, z) { damagePlayer(5, clock.elapsedTime, new THREE.Vector3(x, 0, z)); return hitDirs.length; },
+  simClimb(steps = 500) {
+    const en = new Enemy(scene, new THREE.Vector3(12, 0, 1), 1);
+    enemies.push(en);
+    const pp = new THREE.Vector3(0, 4.9, 0);   // 玩家站在中央平台(眼睛高)
+    const trail = [];
+    for (let i = 0; i < steps; i++) { en.update(1 / 60, pp, level, [en], 0); if (i % 100 === 0) trail.push(+en.root.position.y.toFixed(2)); }
+    const p = en.root.position;
+    return { finalY: +p.y.toFixed(2), x: +p.x.toFixed(2), z: +p.z.toFixed(2), trailY: trail };
+  },
   spawnType(type, n = 4, dist = 10) {
     const fwd = new THREE.Vector3(); camera.getWorldDirection(fwd); fwd.y = 0; fwd.normalize();
     const right = new THREE.Vector3().crossVectors(fwd, new THREE.Vector3(0, 1, 0)).normalize();
