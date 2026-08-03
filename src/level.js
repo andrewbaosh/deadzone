@@ -2,7 +2,8 @@ import * as THREE from 'three';
 import { 画面 } from './config.js';
 import { 色卡, GFX } from './config/graphics.js';
 import { greedyMesh } from './graphics/voxel/greedyMesh.js';
-import { makeTownhouse, makeCobble } from './graphics/voxel/voxelModels.js';
+import { makeBuilding, makeCobble } from './graphics/voxel/voxelModels.js';
+import { 建筑风格 } from './graphics/voxel/styles.js';
 
 /**
  * 关卡：一个带掩体的废弃厂区。
@@ -148,35 +149,41 @@ export class Level {
     if (GFX.体素细节 !== false) this.addVoxelShowcase();
   }
 
-  /** 精细体素建筑 + 砖地（贪婪网格合并 proof）。视觉盖在碰撞盒上，不影响打枪逻辑。 */
+  /** 一排风格化体素联排小楼 + 砖地（贪婪网格合并）。视觉盖在碰撞盒上，不影响打枪逻辑。 */
   addVoxelShowcase() {
-    const vs = 0.16;   // 每格 16cm，够细腻
-    // ---- 砖地：铺在前方广场 ----
-    const cob = makeCobble(80, 80);
-    const cobRes = greedyMesh(cob, vs, new THREE.Vector3(-80 * vs / 2, -0.28, -6 - 80 * vs / 2));
+    const vs = 0.16;   // 每格 16cm
+    const style = 建筑风格.法国南部;
+    const mat = () => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.82, metalness: 0 });
+
+    // ---- 砖地：铺在广场 ----
+    const cob = makeCobble(90, 90);
+    const cobRes = greedyMesh(cob, vs, new THREE.Vector3(-90 * vs / 2, -0.28, -90 * vs / 2 + 4));
     const cobMesh = new THREE.Mesh(cobRes.geometry, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 }));
     cobMesh.receiveShadow = true;
     this.scene.add(cobMesh);
     this.hitMeshes.push(cobMesh);
 
-    // ---- 体素小楼：放在左侧、+z 面朝玩家 ----
-    const house = makeTownhouse();
-    const W = house.sx * vs, D = house.sz * vs;
-    const hx = -14, hz = 6;
-    const res = greedyMesh(house, vs, new THREE.Vector3(hx - W / 2, 0, hz - D / 2));
-    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.82, metalness: 0 });
-    const houseMesh = new THREE.Mesh(res.geometry, mat);
-    houseMesh.castShadow = true;
-    houseMesh.receiveShadow = true;
-    this.scene.add(houseMesh);
-    this.hitMeshes.push(houseMesh);
-    this.voxelStats = { houseTris: res.tris, houseQuads: res.quads };
-
-    // 碰撞盒（占位，别让玩家/丧尸穿进楼里）
-    this.colliders.push({
-      min: new THREE.Vector3(hx - W / 2, 0, hz - D / 2),
-      max: new THREE.Vector3(hx + W / 2, house.sy * vs, hz + D / 2),
-    });
+    // ---- 一排联排小楼：沿 x 相接成街，立面朝 +z（对玩家）----
+    let totalTris = 0;
+    const heights = [46, 52, 44, 50, 48];  // 高低错落
+    const W0 = 28 * vs;                     // 每栋宽（世界）
+    const startX = -24, z = 2;
+    for (let i = 0; i < heights.length; i++) {
+      const house = makeBuilding(style, { seed: i + 3, w: 28, h: heights[i], d: 18 });
+      const W = house.sx * vs, D = house.sz * vs;
+      const cx = startX + i * W0;
+      const res = greedyMesh(house, vs, new THREE.Vector3(cx - W / 2, 0, z - D / 2));
+      totalTris += res.tris;
+      const m = new THREE.Mesh(res.geometry, mat());
+      m.castShadow = true; m.receiveShadow = true;
+      this.scene.add(m);
+      this.hitMeshes.push(m);
+      this.colliders.push({
+        min: new THREE.Vector3(cx - W / 2, 0, z - D / 2),
+        max: new THREE.Vector3(cx + W / 2, house.sy * vs, z + D / 2),
+      });
+    }
+    this.voxelStats = { tris: totalTris, buildings: heights.length };
   }
 
   addWindows() {
