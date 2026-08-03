@@ -23,6 +23,8 @@ import { 打击感, 波次曲线, 音效氛围, 掉落, 受击指示 } from './c
 import { playHeartbeat, playPickup } from './audio.js';
 import { Pickups } from './pickups.js';
 import { Minimap } from './minimap.js';
+import { Boss } from './boss.js';
+import { BOSS } from './config/gameplay.js';
 
 /* ============ 渲染基础 ============ */
 const canvas = document.getElementById('game');
@@ -113,6 +115,10 @@ let extractionActive = false;
 let holdProgress = 0;        // 已在撤离区停留的秒数
 let contSpawnTimer = 0;      // 撤离阶段持续出怪计时
 
+// Boss 阶段（替代撤离）
+let boss = null;
+let bossActive = false;
+
 // 瞄准状态：切换式(F)或按住式(右键)，两者取或
 let aimToggle = false;
 let rightHeld = false;
@@ -139,6 +145,8 @@ const hud = {
   exFill: el('extract-status').querySelector('.ex-fill'),
   hitDirs: el('hit-dirs'),
   pickupToast: el('pickup-toast'),
+  bossHud: el('boss-hud'),
+  bossFill: el('boss-hud').querySelector('.boss-fill'),
 };
 
 function setCenterMsg(html, show = true) {
@@ -275,6 +283,10 @@ function startFreshGame() {
   extraction.close();
   hud.waypoint.style.display = 'none';
   hud.extractStatus.style.display = 'none';
+  // 重置 Boss
+  if (boss) { boss.remove(); boss = null; }
+  bossActive = false;
+  hud.bossHud.style.display = 'none';
 }
 
 // 避免和 config 的中文名冲突，这里包一层
@@ -324,6 +336,8 @@ function aliveCount() {
 }
 
 function updateWaves(dt) {
+  if (state !== STATE.PLAYING) return;    // 已胜利/死亡：别再覆盖中央提示
+  if (bossActive) return;                 // Boss 阶段不再刷波
   if (extractionActive) { updateExtractionPhase(dt); return; }
 
   if (!waveActive) {
@@ -353,9 +367,9 @@ function updateWaves(dt) {
   if (toSpawn <= 0 && aliveCount() === 0) {
     score += 分数.过波奖励;
     waveActive = false;
-    // 撑够波数 -> 开启撤离；否则继续下一波
-    if (wave >= 撤离.开启波数) {
-      openExtraction();
+    // 撑够波数 -> Boss 登场；否则继续下一波
+    if (wave >= BOSS.出现波数) {
+      spawnBoss();
     } else {
       restTimer = 波次.波间休息;
       flashWaveBanner(`第 ${wave} 波 完成 +${分数.过波奖励}`);
@@ -441,6 +455,50 @@ function onWin() {
       canvas.requestPointerLock();
       startFreshGame();
     });
+  }, 0);
+}
+
+/* ============ 大 Boss ============ */
+function spawnBoss() {
+  bossActive = true;
+  waveActive = false;
+  // 清掉残余小僵尸，只留 Boss
+  for (const en of enemies) en.remove();
+  enemies = [];
+  const spawn = new THREE.Vector3(0, 0, -26);
+  boss = new Boss(scene, spawn, wave, {
+    damagePlayer: (dmg, src) => { if (player.alive) damagePlayer(dmg, clock.elapsedTime, src); },
+    knockback: (dx, dz, force, up) => {
+      const l = Math.hypot(dx, dz) || 1;
+      player.vel.x += (dx / l) * force; player.vel.z += (dz / l) * force;
+      player.vel.y += up; player.onGround = false;
+    },
+    shake: (a) => addShake(a * 手感.屏幕震动),
+    aimDisrupt: (amt) => { weapons.recoilPitch += amt; weapons.recoilYaw += (Math.random() - 0.5) * amt; },
+    dropSupply: (pos) => pickups.spawn(pos, Math.random() < 0.5 ? 'ammo' : 'health'),
+  });
+  playWaveStart();
+  setCenterMsg('', false);
+  flashWaveBanner('⚠ 腐化巨兽 降临！');
+  hud.bossHud.style.display = 'block';
+}
+
+function onBossKilled() {
+  state = STATE.WIN;
+  bossActive = false;
+  score += 分数.撤离成功 * 2;
+  if (boss) { boss.remove(); boss = null; }
+  hud.bossHud.style.display = 'none';
+  stopMusic(); stopAmbient();
+  document.exitPointerLock();
+  setCenterMsg(
+    `<div class="big win">☠ 巨兽已被击杀！</div>
+     <div class="sub">通关！撑过 ${wave} 波 · 击杀 ${kills} · 得分 ${score}</div>
+     <div class="restart-btn" id="restart-btn">点击再来一局</div>`
+  );
+  setTimeout(() => {
+    const btn = el('restart-btn');
+    if (btn) btn.addEventListener('click', () => { canvas.requestPointerLock(); startFreshGame(); });
   }, 0);
 }
 
@@ -532,6 +590,7 @@ function processShot(shot) {
     if (en.dead) continue;
     targets.push(en.head, en.torso, en.legL, en.legR, en.armL, en.armR);
   }
+  if (boss && !boss.dead) targets.push(boss.head, boss.body);
 
   for (const dir of shot.rays) {
     raycaster.set(_origin, dir);
@@ -545,6 +604,20 @@ function processShot(shot) {
     }
     const hit = hits[0];
     effects.addTracer(muzzlePos(), hit.point);
+
+    const bo = hit.object.userData.boss;
+    if (bo && !bo.dead) {
+      const isHead = hit.object === bo.head;
+      const dmg = shot.damage * (isHead ? shot.headMul : 1);
+      bo.takeDamage(dmg, isHead, effects);
+      effects.addSparks(hit.point, dir.clone().negate(), isHead ? 10 : 6, isHead ? 0xff6644 : 0x88aa44);
+      shot.onHit(isHead);
+      showHitmarker(isHead);
+      if (手感.显示伤害数字) {
+        effects.addFloatingNumber(hit.point, String(Math.round(dmg * (isHead ? BOSS.头部倍率 : 1))), isHead ? 'headshot' : 'hit');
+      }
+      continue;
+    }
 
     const en = hit.object.userData.enemy;
     if (en && !en.dead) {
@@ -783,6 +856,15 @@ function frame() {
       en.faceBar(camera);
     }
 
+    // 大 Boss
+    if (boss) {
+      if (boss.dead) { onBossKilled(); }
+      else {
+        boss.update(simDt, player.pos, effects);
+        hud.bossFill.style.width = `${(boss.hp / boss.maxHp) * 100}%`;
+      }
+    }
+
     // 掉落拾取
     const got = pickups.update(dt, player.pos);
     if (got) {
@@ -941,6 +1023,10 @@ window.__game = {
   get extraction() { return extraction; },
   // 测试：直接开启撤离阶段
   forceExtraction() { wave = 撤离.开启波数; openExtraction(); return extraction.position.toArray(); },
+  // 测试：直接召唤 Boss
+  forceBoss() { wave = Math.max(wave, BOSS.出现波数); spawnBoss(); return { hp: boss.hp, maxHp: boss.maxHp }; },
+  get boss() { return boss ? { hp: boss.hp, maxHp: boss.maxHp, dead: boss.dead, pos: boss.root.position.toArray(), fireballs: boss.fireballs.length } : null; },
+  bossTakeDamage(dmg, head = false) { if (boss) { const d = boss.takeDamage(dmg, head, effects); return { hp: boss.hp, killed: d }; } return null; },
   // 测试：把玩家瞬移到撤离点内并推进停留判定
   tickExtraction(dt) { updateExtractionPhase(dt); return { holdProgress, state, extractionActive }; },
   setPlayerPos(x, z) { player.pos.x = x; player.pos.z = z; },
