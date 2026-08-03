@@ -57,6 +57,7 @@ export class Enemy {
     this.vel = new THREE.Vector3();
     this.airborne = false;
     this.spin = new THREE.Vector3();
+    this.side = Math.random() < 0.5 ? 1 : -1;   // 绕障碍时的偏侧，破对称防卡死
 
     this.buildMesh(T);
     this.root.position.copy(spawnPos);
@@ -277,11 +278,18 @@ export class Enemy {
       }
     }
 
-    // 导航方向：远处用流场绕开建筑找通路，靠近或流场无解时直冲玩家
+    // 导航：默认直冲玩家。玩家在高台上时，处于东侧台阶通道的僵尸主动沿台阶往上爬（朝 -x + 归中线）；
+    // 其余远处用流场绕障碍找通路。
     let navX = toPlayer.x, navZ = toPlayer.z;
-    if (level.flow && dist > 3 && level.flow.dir(pos.x, pos.z, _navDir)) {
-      // 流向为主，混一点直冲，走起来更顺不卡格
-      navX = _navDir.x * 0.8 + toPlayer.x * 0.2;
+    const onStair = pos.x > 3.5 && pos.x < 12.5 && Math.abs(pos.z) < 3.6;
+    const nearPlatform = Math.abs(pos.x) < 9 && Math.abs(pos.z) < 9;
+    if (onStair && !sameLevel && pos.y < 3.0) {
+      navX = -1; navZ = -pos.z * 0.6;                       // 在台阶：向平台爬 + 归中线
+    } else if (nearPlatform && !sameLevel && pos.y < 0.5 && level.stairEntrance) {
+      navX = level.stairEntrance.x - pos.x;                 // 玩家在台上→先去东侧台阶口
+      navZ = level.stairEntrance.z - pos.z;
+    } else if (level.flow && dist > 3 && pos.y < 0.5 && level.flow.dir(pos.x, pos.z, _navDir)) {
+      navX = _navDir.x * 0.8 + toPlayer.x * 0.2;            // 流场为主+一点直冲，走位更顺
       navZ = _navDir.z * 0.8 + toPlayer.z * 0.2;
     }
 

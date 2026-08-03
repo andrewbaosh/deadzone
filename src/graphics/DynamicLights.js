@@ -13,9 +13,10 @@ export class DynamicLights {
 
     // 头灯
     this.headlight = new THREE.SpotLight(色卡.头灯, 45, 34, 0.6, 0.45, 1.4);
-    this.headlight.position.set(0.15, -0.15, 0.1);
+    // 光源放到枪前方，避免把第一人称枪模型打成惨白（枪在光源后方不进光锥）
+    this.headlight.position.set(0.1, -0.1, -0.95);
     camera.add(this.headlight);
-    this.headlight.target.position.set(0, -0.05, -1);
+    this.headlight.target.position.set(0, -0.15, -6);
     camera.add(this.headlight.target);
     this.headlight.visible = !!GFX.玩家头灯;
     this.applyTier(tierParams);

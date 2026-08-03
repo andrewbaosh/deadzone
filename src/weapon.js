@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import { 武器, 手感 } from './config.js';
 import { playShot, playReload, playDryFire, playHitmarker, playRocketFire } from './audio.js';
+import { makeWeaponMesh } from './graphics/voxel/weapons.js';
+
+const smooth = (t) => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
 
 /**
  * 武器系统：管理当前枪、弹药、换弹、后坐力、开火节奏、第一人称枪模型。
@@ -48,49 +51,43 @@ export class WeaponSystem {
     // 清掉旧的
     while (this.viewGroup.children.length) this.viewGroup.remove(this.viewGroup.children[0]);
 
-    const c = this.cfg.模型;
-    const mat = new THREE.MeshStandardMaterial({
-      color: c.颜色, roughness: 0.5, metalness: 0.55,
-      emissive: new THREE.Color(c.颜色).multiplyScalar(0.35),  // 暗处也看得清枪
+    // 体素枪：body + mag + slide 三部件（顶点色，一个材质）
+    const W = makeWeaponMesh(this.current);
+    const gunMat = new THREE.MeshStandardMaterial({
+      vertexColors: true, roughness: 0.72, metalness: 0.1,   // 低金属度，避免头灯把枪面打成惨白
+      emissive: 0x24272d, emissiveIntensity: 0.55,           // 暗处也看得清枪身细节
     });
-
-    // 枪身
-    const body = new THREE.Mesh(new THREE.BoxGeometry(c.宽, c.高, c.长), mat);
-    body.position.set(0, 0, -c.长 / 2);
-    // 枪管
-    const barrel = new THREE.Mesh(
-      new THREE.CylinderGeometry(c.宽 * 0.35, c.宽 * 0.35, c.长 * 0.5, 8),
-      new THREE.MeshStandardMaterial({ color: 0x1a1c1f, roughness: 0.4, metalness: 0.8 })
-    );
-    barrel.rotation.x = Math.PI / 2;
-    barrel.position.set(0, c.高 * 0.1, -c.长 * 0.9);
-    // 握把
-    const grip = new THREE.Mesh(
-      new THREE.BoxGeometry(c.宽 * 0.9, c.高 * 1.1, c.高),
-      new THREE.MeshStandardMaterial({ color: 0x22252a, roughness: 0.8 })
-    );
-    grip.position.set(0, -c.高 * 0.8, -c.长 * 0.15);
-    grip.rotation.x = 0.25;
-
     const gun = new THREE.Group();
-    gun.add(body, barrel, grip);
+    const body = new THREE.Mesh(W.body, gunMat);
+    const mag = new THREE.Mesh(W.mag, gunMat);
+    const slide = new THREE.Mesh(W.slide, gunMat);
+    gun.add(body, mag, slide);
     this.gun = gun;
+    this.mag = mag; this.magHome = mag.position.clone();
+    this.slide = slide; this.slideHome = slide.position.clone();
     this.viewGroup.add(gun);
 
     // 枪口火光（默认隐藏）
     const flashMat = new THREE.MeshBasicMaterial({
       color: 0xffdd88, transparent: true, blending: THREE.AdditiveBlending, depthTest: false,
     });
-    this.muzzleFlash = new THREE.Mesh(new THREE.PlaneGeometry(0.28, 0.28), flashMat);
-    this.muzzleFlash.position.set(0, c.高 * 0.1, -c.长 * 1.15);
+    this.muzzleFlash = new THREE.Mesh(new THREE.PlaneGeometry(0.14, 0.14), flashMat);
+    this.muzzleFlash.position.copy(W.muzzle);
     this.muzzleFlash.visible = false;
     gun.add(this.muzzleFlash);
-    this.muzzleWorldOffset = new THREE.Vector3(0, c.高 * 0.1, -c.长 * 1.15);
 
-    // 摆放到屏幕右下（缩小一点，别挡视野）
-    this.viewGroup.scale.setScalar(0.72);
-    this.viewGroup.position.set(0.2, -0.2, -0.45);
+    // 摆放到屏幕右下（体素枪较长，缩小到合适手持大小）
+    this.viewGroup.scale.setScalar(0.5);
+    this.viewGroup.position.set(0.19, -0.2, -0.32);
+    this.viewGroup.rotation.set(0, 0.08, 0);   // 略微内旋，看得到侧面细节
+    this.gun.rotation.set(0, 0, 0);
     this.baseGunPos = this.viewGroup.position.clone();
+
+    // 动画状态
+    this.kickRot = 0;          // 开火时枪口上翻
+    this.slidePull = 0;        // 套筒后拉量 0~1
+    this.drawT = 1;            // 掏枪动画进度（1=完成）
+    this.swayX = 0; this.swayY = 0;
   }
 
   switchTo(name) {
@@ -98,8 +95,9 @@ export class WeaponSystem {
     if (!this.slots.includes(name)) return;
     this.previous = this.current;    // 记住上一把
     this.current = name;
-    this.fireCooldown = 0.15;
+    this.fireCooldown = 0.22;
     this.buildViewModel();
+    this.drawT = 0;                  // 触发掏枪动画（从下方抬起）
   }
 
   switchByIndex(i) {
@@ -140,33 +138,60 @@ export class WeaponSystem {
    *   { rays: [方向...], damage, headMul, range }
    * rays 是若干个已带扩散的世界方向向量。
    */
-  update(dt, moving, aiming) {
+  update(dt, moving, aiming, yawDelta = 0) {
     this.fireCooldown -= dt;
 
     // 后坐力恢复
     this.recoilPitch *= Math.max(0, 1 - dt * 6);
     this.recoilYaw *= Math.max(0, 1 - dt * 6);
 
-    // 换弹计时
+    // ---- 换弹动画：枪下沉倾斜 + 弹匣掉出再插入 + 上膛拉套筒 ----
     if (this.reloading) {
       this.reloadTime -= dt;
-      // 换弹动画：枪下沉旋转
-      this.viewGroup.position.y = this.baseGunPos.y - 0.12 * Math.sin(Math.min(Math.PI, (1 - this.reloadTime / this.cfg.换弹时间) * Math.PI));
-      this.gun.rotation.x = 0.5 * Math.sin(Math.min(Math.PI, (1 - this.reloadTime / this.cfg.换弹时间) * Math.PI));
+      const t = 1 - this.reloadTime / this.cfg.换弹时间;    // 0→1
+      const dip = Math.sin(Math.min(Math.PI, t * Math.PI));  // 下沉包络
+      this.viewGroup.position.y = this.baseGunPos.y - 0.14 * dip;
+      this.gun.rotation.x = 0.55 * dip;
+      this.gun.rotation.z = 0.35 * dip;
+      // 弹匣：0.15~0.4 掉出，0.5~0.72 插回
+      let magDrop = 0;
+      if (t < 0.4) magDrop = smooth((t - 0.15) / 0.25);          // 掉出
+      else if (t < 0.72) magDrop = 1 - smooth((t - 0.5) / 0.22); // 插回
+      this.mag.position.y = this.magHome.y - magDrop * 0.16;
+      this.mag.visible = magDrop < 0.98;
+      // 收尾拉套筒上膛
+      this.slidePull = t > 0.82 ? Math.sin((t - 0.82) / 0.18 * Math.PI) : 0;
       if (this.reloadTime <= 0) this.finishReload();
     } else {
-      this.gun.rotation.x += (0 - this.gun.rotation.x) * Math.min(1, dt * 10);
+      this.gun.rotation.x += (this.kickRot - this.gun.rotation.x) * Math.min(1, dt * 14);
+      this.gun.rotation.z += (0 - this.gun.rotation.z) * Math.min(1, dt * 12);
+      this.mag.position.y += (this.magHome.y - this.mag.position.y) * Math.min(1, dt * 20);
+      this.mag.visible = true;
     }
 
-    // 后坐动画恢复
+    // ---- 开火后坐恢复 ----
     this.kickZ *= Math.max(0, 1 - dt * 12);
+    this.kickRot *= Math.max(0, 1 - dt * 14);
+    this.slidePull *= Math.max(0, 1 - dt * 22);
+    // 套筒后拉
+    this.slide.position.z = this.slideHome.z + this.slidePull * 0.08;
+
+    // ---- 掏枪动画：从下方抬起 ----
+    this.drawT = Math.min(1, this.drawT + dt * 4.5);
+    const drawOff = (1 - this.drawT);
+
+    // ---- 转视角时枪身滞后摆动（sway）----
+    this.swayX += (-yawDelta * 4 - this.swayX) * Math.min(1, dt * 8);
+    this.swayX = Math.max(-0.25, Math.min(0.25, this.swayX));
+
     this.viewGroup.position.z = this.baseGunPos.z + this.kickZ;
     if (!this.reloading) {
-      this.viewGroup.position.y += (this.baseGunPos.y - this.viewGroup.position.y) * Math.min(1, dt * 10);
+      this.viewGroup.position.y += (this.baseGunPos.y - 0.5 * drawOff - this.viewGroup.position.y) * Math.min(1, dt * 12);
     }
-    // 开镜时枪往中间收
+    this.viewGroup.rotation.z += (this.swayX * 0.5 - this.viewGroup.rotation.z) * Math.min(1, dt * 10);
+    // 开镜时枪往中间收（掏枪时也从右下抬进来）
     const aimX = aiming ? 0.0 : 0.16;
-    this.viewGroup.position.x += (aimX - this.viewGroup.position.x) * Math.min(1, dt * 12);
+    this.viewGroup.position.x += (aimX + this.swayX * 0.12 + drawOff * 0.15 - this.viewGroup.position.x) * Math.min(1, dt * 12);
 
     // 火光淡出
     if (this.muzzleFlash.visible) {
@@ -203,8 +228,10 @@ export class WeaponSystem {
     this.muzzleFlash.scale.setScalar(0.7 + Math.random() * 0.5);
     this.muzzleFlash.rotation.z = Math.random() * Math.PI;
 
-    // 后坐动画
-    this.kickZ = 0.06 * c.后坐力;
+    // 后坐动画：枪后座 + 枪口上翻 + 拉套筒
+    this.kickZ = 0.05 * c.后坐力;
+    this.kickRot = -Math.min(0.5, 0.05 * c.后坐力);   // 枪口上翻（绕 x 负向）
+    if (!c.是火箭) this.slidePull = 1;                 // 套筒瞬间后拉
 
     // 后坐力：抬准星（火箭筒踢得很猛）
     this.recoilPitch += c.后坐力 * 0.006 * (0.7 + Math.random() * 0.6);

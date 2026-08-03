@@ -99,6 +99,8 @@ export class Level {
     for (let i = 0; i < 4; i++) {
       this.addBox(9.6 - i * 1.4, 0, 0, 1.4, 0.8 * (i + 1), 4.4, 0xa89a7c, { roughness: 0.9 });
     }
+    // 台阶入口（玩家在平台上时，把僵尸先引到这里来爬楼）
+    this.stairEntrance = new THREE.Vector3(10.8, 0, 0);
 
     // ---------- 掩体布局（只登记碰撞，视觉由体素道具提供）----------
     // 高掩体：市集摊位

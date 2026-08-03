@@ -89,6 +89,7 @@ let rockets = [];
 let staticHitList = level.hitMeshes.slice();   // 环境可命中物
 let shakeAmount = 0;                            // 屏幕震动强度
 let hitstopTimer = 0;                           // 命中顿帧（微时停）
+let _lastGunYaw = 0;                            // 上帧朝向（枪身 sway 用）
 let heartbeatTimer = 0;                         // 低血心跳计时
 
 /* ============ 游戏状态 ============ */
@@ -730,7 +731,8 @@ function frame() {
     }
 
     const moving = (Math.abs(player.vel.x) + Math.abs(player.vel.z)) > 0.6;
-    const shot = weapons.update(simDt, moving, aiming);
+    const yawDelta = player.yaw - _lastGunYaw; _lastGunYaw = player.yaw;
+    const shot = weapons.update(simDt, moving, aiming, yawDelta);
     if (shot) {
       if (shot.rocket) spawnRocket(shot);
       else processShot(shot);
@@ -753,8 +755,14 @@ function frame() {
       }
     }
 
-    // 流场寻路：每帧从玩家位置铺一次距离场，所有僵尸共用
-    if (enemies.length && level.flow) level.flow.compute(player.pos.x, player.pos.z);
+    // 流场寻路：每帧从玩家位置铺一次距离场，所有僵尸共用。
+    // 玩家在高台上时，把流场目标改成台阶入口，僵尸先去爬楼而不是堆在台下。
+    if (enemies.length && level.flow) {
+      let gx = player.pos.x, gz = player.pos.z;
+      const playerFoot = player.pos.y - player.height;
+      if (playerFoot > 1.0 && level.stairEntrance) { gx = level.stairEntrance.x; gz = level.stairEntrance.z; }
+      level.flow.compute(gx, gz);
+    }
 
     // 敌人
     for (let i = enemies.length - 1; i >= 0; i--) {
@@ -987,6 +995,17 @@ window.__game = {
     }
     const p = en.root.position;
     return { finalDist: +Math.hypot(p.x - px, p.z - pz).toFixed(2), path };
+  },
+  simPlatformSiege(steps = 1600) {
+    const pf = new THREE.Vector3(0, 3.2 + player.height, 0);   // 玩家眼睛在平台上
+    const spots = [[0, 22], [22, 2], [-22, 2], [2, -22], [16, 16], [-16, -16]];
+    const zs = spots.map(([x, z]) => { const e = new Enemy(scene, new THREE.Vector3(x, 0, z), 3); e.speed = 4.2; enemies.push(e); return e; });
+    for (let i = 0; i < steps; i++) {
+      level.flow.compute(level.stairEntrance.x, level.stairEntrance.z);
+      for (const e of zs) e.update(1 / 60, pf, level, enemies, enemies.indexOf(e));
+    }
+    return { climbed: zs.filter((e) => e.root.position.y > 2).length, of: zs.length,
+      pos: zs.map((e) => [+e.root.position.x.toFixed(0), +e.root.position.y.toFixed(1), +e.root.position.z.toFixed(0)]) };
   },
   simClimb(steps = 500) {
     const en = new Enemy(scene, new THREE.Vector3(12, 0, 1), 1);

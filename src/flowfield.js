@@ -21,7 +21,8 @@ export class FlowField {
       const w = c.max.x - c.min.x, d = c.max.z - c.min.z;
       if (w < 3 && d < 3) continue;                         // 小物件(酒桶等)不进流场
       const cx = (c.min.x + c.max.x) / 2, cz = (c.min.z + c.max.z) / 2;
-      if (Math.abs(cx) < 9 && Math.abs(cz) < 9) continue;   // 中央平台/台阶区放行
+      // 中央区：封"大平台"(僵尸绕行)，但放行台阶等小碰撞(僵尸从这里爬上去)
+      if (Math.abs(cx) < 9 && Math.abs(cz) < 9 && w < 10 && d < 10) continue;
       const x0 = this.gx(c.min.x - 0.7), x1 = this.gx(c.max.x + 0.7);   // 膨胀 0.7m 防贴角
       const z0 = this.gz(c.min.z - 0.7), z1 = this.gz(c.max.z + 0.7);
       for (let zz = z0; zz <= z1; zz++)
@@ -29,6 +30,11 @@ export class FlowField {
           if (this.inb(xx, zz)) this.blocked[zz * this.cols + xx] = 1;
     }
     this._ready = false;
+  }
+
+  openBox(wx0, wx1, wz0, wz1) {
+    const x0 = this.gx(wx0), x1 = this.gx(wx1), z0 = this.gz(wz0), z1 = this.gz(wz1);
+    for (let z = z0; z <= z1; z++) for (let x = x0; x <= x1; x++) if (this.inb(x, z)) this.blocked[z * this.cols + x] = 0;
   }
 
   gx(x) { return Math.floor((x + this.S) / this.cell); }
@@ -80,8 +86,8 @@ export class FlowField {
     const cx = this.gx(x), cz = this.gz(z);
     if (!this.inb(cx, cz)) return false;
     const here = this.dist[cz * this.cols + cx];
-    if (here < 0) return false;
-    let best = here, bx = 0, bz = 0, found = false;
+    // 自己格子被挡(here<0)时 best=∞，会朝"能走且最靠近玩家"的邻格挪，从而脱离障碍回到通路
+    let best = here >= 0 ? here : Infinity, bx = 0, bz = 0, found = false;
     for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) {
       if (dx === 0 && dz === 0) continue;
       const nx = cx + dx, nz = cz + dz;
