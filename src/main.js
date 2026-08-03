@@ -62,17 +62,7 @@ const level = new Level(scene, { shadowMapSize: quality.params.shadowMapSize });
 const dynamicLights = new DynamicLights(scene, camera, quality.params);
 const eyeField = new EyeField(scene, 64);
 
-// 阶段8（轻量）：给地面贴代码生成的细节法线（不加面数/不加 draw call）
-if (GFX.PBR贴图 && level.ground) {
-  try {
-    const detail = makeDetailNormal(256);
-    detail.repeat.set(48, 48);   // 大量平铺，颗粒才细
-    level.ground.material.normalMap = detail;
-    level.ground.material.normalScale.set(0.6, 0.6);
-    level.ground.material.roughness = 0.95;
-    level.ground.material.needsUpdate = true;
-  } catch (e) { console.warn('地面细节法线生成失败，跳过:', e); }
-}
+// 地面细节法线现由 level 的鹅卵石贴图提供（makeCobbleTextures），此处不再叠加。
 
 // 画质档变化时：调雾密度 + 阴影分辨率 + 后处理 + 头灯投影
 onQualityChange = (p) => {

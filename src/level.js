@@ -2,8 +2,9 @@ import * as THREE from 'three';
 import { 画面 } from './config.js';
 import { 色卡, GFX } from './config/graphics.js';
 import { greedyMesh } from './graphics/voxel/greedyMesh.js';
-import { makeBuilding, makeCobble } from './graphics/voxel/voxelModels.js';
+import { makeTerrace, makeFountain, makeTree, makeTable } from './graphics/voxel/voxelModels.js';
 import { 建筑风格 } from './graphics/voxel/styles.js';
+import { makeCobbleTextures } from './graphics/groundTexture.js';
 
 /**
  * 关卡：一个带掩体的废弃厂区。
@@ -50,22 +51,26 @@ export class Level {
   build() {
     const S = this.size;
 
-    // ---------- 地面 ----------
+    // ---------- 地面（鹅卵石广场）----------
     const groundGeo = new THREE.PlaneGeometry(S * 2, S * 2, 1, 1);
-    const groundMat = new THREE.MeshStandardMaterial({ color: 0x2a2f36, roughness: 1 });
+    const groundMat = new THREE.MeshStandardMaterial({ color: 0xb8a888, roughness: 0.95, metalness: 0 });
+    if (GFX.体素细节 !== false) {
+      try {
+        const { map, normalMap } = makeCobbleTextures(512, 11);
+        const rep = S * 2 / 4.5;              // 每 ~4.5m 一块贴图
+        map.repeat.set(rep, rep); normalMap.repeat.set(rep, rep);
+        groundMat.map = map;
+        groundMat.normalMap = normalMap;
+        groundMat.normalScale.set(0.9, 0.9);
+        groundMat.color.set(0xffffff);        // 有贴图后不额外染色
+      } catch (e) { console.warn('鹅卵石地面贴图失败:', e); }
+    }
     const ground = new THREE.Mesh(groundGeo, groundMat);
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
     this.scene.add(ground);
     this.hitMeshes.push(ground);
-    this.ground = ground;   // 供阶段8 贴细节法线
-
-    // 地面格子线，帮助判断距离和速度
-    const grid = new THREE.GridHelper(S * 2, S, 0x3d4650, 0x333a42);
-    grid.position.y = 0.01;
-    grid.material.opacity = 0.35;
-    grid.material.transparent = true;
-    this.scene.add(grid);
+    this.ground = ground;   // 网格线已去掉（和石板风格冲突）
 
     // ---------- 外墙 ----------
     const wallH = 7;
@@ -131,8 +136,8 @@ export class Level {
       });
     }
 
-    // ---------- 丧尸的出生点：场地四周的暗角 ----------
-    const r = S - 4;
+    // ---------- 丧尸的出生点：广场内圈（在联排小楼前方，别刷进楼里）----------
+    const r = S - 16;
     for (let i = 0; i < 16; i++) {
       const a = (i / 16) * Math.PI * 2;
       this.spawnPoints.push(new THREE.Vector3(Math.cos(a) * r, 0, Math.sin(a) * r));
@@ -149,41 +154,60 @@ export class Level {
     if (GFX.体素细节 !== false) this.addVoxelShowcase();
   }
 
-  /** 一排风格化体素联排小楼 + 砖地（贪婪网格合并）。视觉盖在碰撞盒上，不影响打枪逻辑。 */
-  addVoxelShowcase() {
-    const vs = 0.16;   // 每格 16cm
-    const style = 建筑风格.法国南部;
-    const mat = () => new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.82, metalness: 0 });
-
-    // ---- 砖地：铺在广场 ----
-    const cob = makeCobble(90, 90);
-    const cobRes = greedyMesh(cob, vs, new THREE.Vector3(-90 * vs / 2, -0.28, -90 * vs / 2 + 4));
-    const cobMesh = new THREE.Mesh(cobRes.geometry, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 }));
-    cobMesh.receiveShadow = true;
-    this.scene.add(cobMesh);
-    this.hitMeshes.push(cobMesh);
-
-    // ---- 一排联排小楼：沿 x 相接成街，立面朝 +z（对玩家）----
-    let totalTris = 0;
-    const heights = [46, 52, 44, 50, 48];  // 高低错落
-    const W0 = 28 * vs;                     // 每栋宽（世界）
-    const startX = -24, z = 2;
-    for (let i = 0; i < heights.length; i++) {
-      const house = makeBuilding(style, { seed: i + 3, w: 28, h: heights[i], d: 18 });
-      const W = house.sx * vs, D = house.sz * vs;
-      const cx = startX + i * W0;
-      const res = greedyMesh(house, vs, new THREE.Vector3(cx - W / 2, 0, z - D / 2));
-      totalTris += res.tris;
-      const m = new THREE.Mesh(res.geometry, mat());
-      m.castShadow = true; m.receiveShadow = true;
-      this.scene.add(m);
-      this.hitMeshes.push(m);
+  /** 一个物件体素模型 → 合并网格 → 放进场景（可选碰撞盒）。rotY 只用 0/±90/180。 */
+  placeVoxel(vol, vs, wx, wz, rotY = 0, opts = {}) {
+    const W = vol.sx * vs, H = vol.sy * vs, D = vol.sz * vs;
+    // 生成时把体居中在 X、front(+z) 在 +D/2，方便旋转朝向
+    const res = greedyMesh(vol, vs, new THREE.Vector3(-W / 2, 0, -D / 2));
+    this._voxTris = (this._voxTris || 0) + res.tris;
+    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: opts.rough ?? 0.82, metalness: 0 });
+    const m = new THREE.Mesh(res.geometry, mat);
+    m.position.set(wx, opts.y ?? 0, wz);
+    m.rotation.y = rotY;
+    m.castShadow = opts.cast ?? true;
+    m.receiveShadow = true;
+    this.scene.add(m);
+    this.hitMeshes.push(m);
+    if (opts.collide) {
+      // 旋转后的世界足迹（0/±90/180 都是轴对齐）
+      const halfW = (Math.abs(Math.cos(rotY)) * W + Math.abs(Math.sin(rotY)) * D) / 2;
+      const halfD = (Math.abs(Math.sin(rotY)) * W + Math.abs(Math.cos(rotY)) * D) / 2;
       this.colliders.push({
-        min: new THREE.Vector3(cx - W / 2, 0, z - D / 2),
-        max: new THREE.Vector3(cx + W / 2, house.sy * vs, z + D / 2),
+        min: new THREE.Vector3(wx - halfW, 0, wz - halfD),
+        max: new THREE.Vector3(wx + halfW, H, wz + halfD),
       });
     }
-    this.voxelStats = { tris: totalTris, buildings: heights.length };
+    return m;
+  }
+
+  /** 铺开整条南法小街：四面联排小楼围合 + 喷泉/梧桐/咖啡桌等标志物。视觉盖在碰撞上，不动打枪逻辑。 */
+  addVoxelShowcase() {
+    const vs = 0.16;
+    const style = 建筑风格.法国南部;
+    const S = this.size, uw = 28, dd = 18;
+    const Dw = dd * vs;                 // 楼深（世界）
+    const inner = S - 3;               // 楼背贴近外墙
+
+    // 四面联排（立面朝内）。units 控制长度。
+    const sides = [
+      { units: 13, rotY: 0, at: [0, -(inner - Dw / 2)], seed: 2 },              // 北，朝 +z
+      { units: 13, rotY: Math.PI, at: [0, inner - Dw / 2], seed: 5 },           // 南，朝 -z
+      { units: 13, rotY: Math.PI / 2, at: [-(inner - Dw / 2), 0], seed: 8 },    // 西，朝 +x
+      { units: 13, rotY: -Math.PI / 2, at: [inner - Dw / 2, 0], seed: 11 },     // 东，朝 -x
+    ];
+    for (const s of sides) {
+      const ter = makeTerrace(style, { units: s.units, unitW: uw, d: dd, baseSeed: s.seed });
+      this.placeVoxel(ter, vs, s.at[0], s.at[1], s.rotY, { collide: true });
+    }
+
+    // 标志物
+    this.placeVoxel(makeFountain(), vs, 14, 14, 0, { collide: true, rough: 0.7 });
+    const treeSpots = [[-12, 16], [20, 12], [-24, -6], [24, -18], [-2, -22], [10, -16]];
+    treeSpots.forEach(([x, z], i) => this.placeVoxel(makeTree(i + 1), vs, x, z, 0, { collide: false, cast: true }));
+    const tableSpots = [[-16, 12], [-10, 15], [18, 6], [7, 17]];
+    tableSpots.forEach(([x, z]) => this.placeVoxel(makeTable(), vs, x, z, 0, { cast: true }));
+
+    this.voxelStats = { tris: this._voxTris };
   }
 
   addWindows() {
