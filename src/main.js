@@ -22,6 +22,7 @@ import { makeDetailNormal } from './graphics/detailTexture.js';
 import { 打击感, 波次曲线, 音效氛围, 掉落, 受击指示 } from './config/gameplay.js';
 import { playHeartbeat, playPickup } from './audio.js';
 import { Pickups } from './pickups.js';
+import { Minimap } from './minimap.js';
 
 /* ============ 渲染基础 ============ */
 const canvas = document.getElementById('game');
@@ -80,6 +81,7 @@ const weapons = new WeaponSystem(camera, scene);
 const effects = new Effects(scene, camera);
 const extraction = new Extraction(scene);
 const pickups = new Pickups(scene);
+const minimap = new Minimap(level);
 const raycaster = new THREE.Raycaster();
 
 let enemies = [];
@@ -800,6 +802,7 @@ function frame() {
     eyeField.update(enemies);
     effects.update(dt);
     updateHitDirs(dt);
+    minimap.update(player, enemies, pickups.active, extraction);
     updateHUD(dt);
   }
 

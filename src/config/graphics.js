@@ -19,6 +19,7 @@ export const 色卡 = {
 // 各画面效果的总开关（默认全开，可单独关）
 export const GFX = {
   显示性能面板: true,   // 左上角 stats.js（FPS/MS/DrawCall/档位）
+  小地图: true,         // 右上角小地图（场地/僵尸/掉落/撤离点）
 
   // 阶段1 光照色彩
   色调映射: true,       // ACESFilmic tone mapping + sRGB
