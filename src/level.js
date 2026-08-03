@@ -139,13 +139,17 @@ export class Level {
   }
 
   buildLights() {
-    // 半球光：上冷 / 下暗（夜色）
-    this.scene.add(new THREE.HemisphereLight(色卡.半球上, 色卡.半球下, 0.5));
-    // 极弱环境光补一点暗部细节
-    this.scene.add(new THREE.AmbientLight(色卡.半球上, 0.12));
+    // 半球光：上冷天光 / 下暖地面反弹（可读的黄昏，不再纯黑）
+    this.scene.add(new THREE.HemisphereLight(0x8899cc, 0x6a5238, 1.05));
+    // 环境光补暗部（暖一点）
+    this.scene.add(new THREE.AmbientLight(0x6a6478, 0.35));
+    // 一盏暖色补光模拟街灯/室内暖光的整体氛围
+    const warmFill = new THREE.DirectionalLight(色卡.暖焦点, 0.5);
+    warmFill.position.set(-20, 24, -14);
+    this.scene.add(warmFill);
 
     // 月光主方向光（冷蓝），从高处斜射，收紧阴影相机不漏光不悬浮
-    const sun = new THREE.DirectionalLight(色卡.月光, 1.5);
+    const sun = new THREE.DirectionalLight(色卡.月光, 1.7);
     sun.position.set(34, 58, 20);
     sun.target.position.set(0, 0, 0);
     this.scene.add(sun.target);

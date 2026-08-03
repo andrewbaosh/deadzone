@@ -25,6 +25,16 @@ export const GFX = {
   月光: true,           // 方向光月光
   半球光: true,
   雾: true,             // FogExp2 夜雾
+  雾色: 0x1a1520,       // 雾/背景色（暖暗黄昏，不再冷黑）——想更冷改回 0x0a0e1a
+  全局光: true,         // 环境贴图 IBL：柔和环境反弹光，材质从"发灰"变"被环境照亮"（质感关键）
+  环境光强度: 1.25,     // env map 影响强度
+  曝光: 1.35,           // 色调映射曝光（调亮一点材质才看得清）
+
+  // 质感调色
+  调色: true,           // 暖调 + 对比 + 饱和微调
+  暖度: 0.12,           // 往暖色偏
+  对比: 0.12,
+  饱和: 0.18,
 
   // 阶段2 后处理
   后处理: true,         // 总开关（关掉则完全不走 composer）
@@ -57,7 +67,7 @@ export const TIERS = {
     shadowMapSize: 512,
     postFX: false,          // LOW 不走后处理
     ao: false,
-    fogDensity: 0.030,
+    fogDensity: 0.016,
     particleCap: 60,
     headlightShadow: false,
     bloom: false,
@@ -69,7 +79,7 @@ export const TIERS = {
     shadowMapSize: 1024,
     postFX: true,
     ao: false,
-    fogDensity: 0.024,
+    fogDensity: 0.012,
     particleCap: 160,
     headlightShadow: false,
     bloom: true,
@@ -81,7 +91,7 @@ export const TIERS = {
     shadowMapSize: 2048,
     postFX: true,
     ao: true,
-    fogDensity: 0.022,
+    fogDensity: 0.009,
     particleCap: 320,
     headlightShadow: true,
     bloom: true,

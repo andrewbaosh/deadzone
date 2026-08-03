@@ -3,6 +3,7 @@ import {
   EffectComposer, RenderPass, EffectPass,
   BloomEffect, VignetteEffect, SMAAEffect, SMAAPreset,
   ChromaticAberrationEffect, NoiseEffect, ToneMappingEffect, ToneMappingMode,
+  HueSaturationEffect, BrightnessContrastEffect,
   BlendFunction, KernelSize,
 } from 'postprocessing';
 import { N8AOPostPass } from 'n8ao';
@@ -39,14 +40,16 @@ export class PostFX {
     this.composer = new EffectComposer(this.renderer, { frameBufferType: HalfFloatType });
     this.composer.addPass(new RenderPass(this.scene, this.camera));
 
-    // N8AO（仅 HIGH，半分辨率保性能）
-    if (tier.ao && GFX.环境光遮蔽) {
+    // N8AO —— 质感的关键。HIGH 全分辨率+中质量+强一点；MED 半分辨率轻量也开一点。
+    if ((tier.ao || tier.bloom) && GFX.环境光遮蔽) {
       const ao = new N8AOPostPass(this.scene, this.camera, w, h);
-      ao.configuration.aoRadius = 1.6;
-      ao.configuration.distanceFalloff = 1.0;
-      ao.configuration.intensity = 2.2;
-      ao.configuration.halfRes = true;         // 降采样，控制在预算内
-      if (ao.setQualityMode) ao.setQualityMode('Low');
+      ao.configuration.aoRadius = 2.4;
+      ao.configuration.distanceFalloff = 1.5;
+      ao.configuration.intensity = tier.ao ? 3.6 : 2.6;   // HIGH 更浓
+      ao.configuration.aoSamples = tier.ao ? 16 : 8;
+      ao.configuration.denoiseSamples = 4;
+      ao.configuration.halfRes = !tier.ao;                 // HIGH 全分辨率，MED 半分辨率
+      if (ao.setQualityMode) ao.setQualityMode(tier.ao ? 'Medium' : 'Low');
       this.composer.addPass(ao);
       this.ao = ao;
     }
@@ -73,8 +76,13 @@ export class PostFX {
     if (GFX.暗角) {
       effects.push(new VignetteEffect({ darkness: 0.55, offset: 0.32 }));
     }
-    // 色调映射放最后（HDR -> LDR）
+    // 色调映射（HDR -> LDR）
     effects.push(new ToneMappingEffect({ mode: ToneMappingMode.ACES_FILMIC }));
+    // 调色（LDR 上做）：饱和 + 对比 → 质感更"厚"
+    if (GFX.调色) {
+      effects.push(new HueSaturationEffect({ saturation: GFX.饱和 ?? 0.15 }));
+      effects.push(new BrightnessContrastEffect({ brightness: 0.0, contrast: GFX.对比 ?? 0.1 }));
+    }
     this.composer.addPass(new EffectPass(this.camera, ...effects));
 
     // SMAA 单独一遍放最末
