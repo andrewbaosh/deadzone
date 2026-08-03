@@ -57,6 +57,7 @@ export const GFX = {
   // 氛围建模细节（黄昏温馨）
   暖窗: true,           // 建筑上的暖光窗户（发光，被 bloom 点亮）
   街灯: true,           // 街灯柱 + 暖色光池
+  体素细节: true,       // 精细体素建筑/砖地（贪婪网格合并，proof-of-concept）
 
   // 阶段8
   PBR贴图: true,

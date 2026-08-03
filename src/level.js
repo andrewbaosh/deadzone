@@ -1,6 +1,8 @@
 import * as THREE from 'three';
 import { 画面 } from './config.js';
 import { 色卡, GFX } from './config/graphics.js';
+import { greedyMesh } from './graphics/voxel/greedyMesh.js';
+import { makeTownhouse, makeCobble } from './graphics/voxel/voxelModels.js';
 
 /**
  * 关卡：一个带掩体的废弃厂区。
@@ -143,6 +145,38 @@ export class Level {
   buildAmbiance() {
     if (GFX.暖窗 !== false) this.addWindows();
     if (GFX.街灯 !== false) this.addLamps();
+    if (GFX.体素细节 !== false) this.addVoxelShowcase();
+  }
+
+  /** 精细体素建筑 + 砖地（贪婪网格合并 proof）。视觉盖在碰撞盒上，不影响打枪逻辑。 */
+  addVoxelShowcase() {
+    const vs = 0.16;   // 每格 16cm，够细腻
+    // ---- 砖地：铺在前方广场 ----
+    const cob = makeCobble(80, 80);
+    const cobRes = greedyMesh(cob, vs, new THREE.Vector3(-80 * vs / 2, -0.28, -6 - 80 * vs / 2));
+    const cobMesh = new THREE.Mesh(cobRes.geometry, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0 }));
+    cobMesh.receiveShadow = true;
+    this.scene.add(cobMesh);
+    this.hitMeshes.push(cobMesh);
+
+    // ---- 体素小楼：放在左侧、+z 面朝玩家 ----
+    const house = makeTownhouse();
+    const W = house.sx * vs, D = house.sz * vs;
+    const hx = -14, hz = 6;
+    const res = greedyMesh(house, vs, new THREE.Vector3(hx - W / 2, 0, hz - D / 2));
+    const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.82, metalness: 0 });
+    const houseMesh = new THREE.Mesh(res.geometry, mat);
+    houseMesh.castShadow = true;
+    houseMesh.receiveShadow = true;
+    this.scene.add(houseMesh);
+    this.hitMeshes.push(houseMesh);
+    this.voxelStats = { houseTris: res.tris, houseQuads: res.quads };
+
+    // 碰撞盒（占位，别让玩家/丧尸穿进楼里）
+    this.colliders.push({
+      min: new THREE.Vector3(hx - W / 2, 0, hz - D / 2),
+      max: new THREE.Vector3(hx + W / 2, house.sy * vs, hz + D / 2),
+    });
   }
 
   addWindows() {
