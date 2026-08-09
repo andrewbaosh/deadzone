@@ -212,9 +212,10 @@ export function makeBarrel() {
   };
 }
 
-/** 中央石台：可登高的石砌平台 + 栏杆（替代灰方块中央建筑） */
-export function makeStonePlatform(size = 76, hgt = 22) {
-  const stone = 0xb0a284, stone2 = 0x9e9074, cap = 0xc0b294, dark = 0x8a7c60;
+/** 中央石台：可登高的石砌平台 + 栏杆（替代灰方块中央建筑）。pal 可换沙漠砂岩配色 */
+export function makeStonePlatform(size = 76, hgt = 22, pal = null) {
+  const stone = pal?.stone ?? 0xb0a284, stone2 = pal?.stone2 ?? 0x9e9074,
+    cap = pal?.cap ?? 0xc0b294, dark = pal?.dark ?? 0x8a7c60;
   return {
     sx: size, sy: hgt, sz: size,
     get(x, y, z) {
@@ -247,6 +248,144 @@ export function makeTable() {
       if (y < 7 && Math.abs(dx) < 1 && Math.abs(dz) < 1) return leg;           // 桌腿
       for (const cxx of [R - 6, R + 4]) {                                       // 两把椅子
         if (Math.abs(x - cxx) <= 1.5 && Math.abs(dz) < 1.8) { if (y < 4) return chair; if (y >= 4 && y < 5 && x < cxx) return chair; }
+      }
+      return -1;
+    },
+  };
+}
+
+/* ================= 沙漠地图道具 ================= */
+
+const _box = (x, y, z, x0, x1, y0, y1, z0, z1) => x >= x0 && x <= x1 && y >= y0 && y <= y1 && z >= z0 && z <= z1;
+
+/** 巨石/砂岩巨砾（椭球堆叠，按尺寸做大/中/矮掩体） */
+export function makeRock(seed = 1, opts = {}) {
+  const w = opts.w ?? 20, h = opts.h ?? 15, d = opts.d ?? 15;
+  const rock = 0x9a8262, rock2 = 0x866e4e, rock3 = 0xa89070, shadow = 0x6f5a3e;
+  // 1~2 个椭球堆叠
+  const blobs = [{ cx: w / 2, cy: h * 0.42, cz: d / 2, rx: w * 0.5, ry: h * 0.55, rz: d * 0.5 }];
+  if ((seed % 2) === 0) blobs.push({ cx: w * 0.32, cy: h * 0.3, cz: d * 0.6, rx: w * 0.34, ry: h * 0.4, rz: d * 0.34 });
+  return {
+    sx: w, sy: h, sz: d,
+    get(x, y, z) {
+      let inside = false;
+      for (const b of blobs) {
+        const nx = (x - b.cx) / b.rx, ny = (y - b.cy) / b.ry, nz = (z - b.cz) / b.rz;
+        const noise = (hash2(x * 2 + seed * 7, z * 3 + y) - 0.5) * 0.22;
+        if (nx * nx + ny * ny + nz * nz <= 1 + noise) { inside = true; break; }
+      }
+      if (!inside) return -1;
+      if (y < 1) return shadow;
+      const r = hash2(x * 5 + seed, z * 7 + y * 3);
+      return r < 0.2 ? shadow : r < 0.5 ? rock2 : r < 0.82 ? rock : rock3;
+    },
+  };
+}
+
+/** 仙人掌（萨瓜罗）：主干 + 两条上举的手臂 + 顶花 */
+export function makeCactus(seed = 1) {
+  const w = 9, h = 30, d = 9, cx = 4, cz = 4;
+  const green = 0x4c7a3e, green2 = 0x3f6a33, dark = 0x2f5228, flower = 0xd8607a;
+  const armH = 12 + Math.floor(hash1(seed * 5) * 6);
+  return {
+    sx: w, sy: h, sz: d,
+    get(x, y, z) {
+      const dx = x - cx, dz = z - cz;
+      const trunkR = (Math.abs(dz) <= 1 && Math.abs(dx) <= 1);
+      // 主干
+      if (trunkR && y < 27) return y === 26 ? flowerTop(x, z) : ribbed(x, y, z);
+      // 左臂：横 (y=armH) 再竖
+      if (y === armH && dx >= -3 && dx <= -1 && Math.abs(dz) <= 1) return ribbed(x, y, z);
+      if (dx >= -3 && dx <= -2 && Math.abs(dz) <= 1 && y >= armH && y <= armH + 7) return y === armH + 7 ? flower : ribbed(x, y, z);
+      // 右臂：横 (y=armH+4) 再竖
+      if (y === armH + 4 && dx >= 1 && dx <= 3 && Math.abs(dz) <= 1) return ribbed(x, y, z);
+      if (dx >= 2 && dx <= 3 && Math.abs(dz) <= 1 && y >= armH + 4 && y <= armH + 11) return y === armH + 11 ? flower : ribbed(x, y, z);
+      return -1;
+      function ribbed(x, y) { const rib = ((x + 100) % 2) === 0; return (y % 6 === 0) ? dark : rib ? green : green2; }
+      function flowerTop(x, z) { return ((x + z) & 1) ? flower : green; }
+    },
+  };
+}
+
+/** 枯灌木/矮岩（矮掩体，蹲下可躲） */
+export function makeDeadShrub(seed = 1) {
+  const w = 16, h = 8, d = 10;
+  const rock = 0x8a7454, rock2 = 0x76603e, twig = 0x5a4a34, twig2 = 0x6a5638;
+  return {
+    sx: w, sy: h, sz: d,
+    get(x, y, z) {
+      const dx = x - w / 2, dz = z - d / 2;
+      // 底部矮岩
+      const nx = dx / (w * 0.5), ny = (y - 1) / 4, nz = dz / (d * 0.5);
+      if (y < 5 && nx * nx + ny * ny + nz * nz <= 1 + (hash2(x + seed, z + y) - 0.5) * 0.2)
+        return (hash2(x * 3, z * 3 + y) < 0.4) ? rock2 : rock;
+      // 顶部几根枯枝
+      if (y >= 4 && Math.abs(dx) <= 4 && Math.abs(dz) <= 3) {
+        const r = hash2(x * 7 + seed, z * 5 + y * 3);
+        if (r < 0.12) return (y & 1) ? twig : twig2;
+      }
+      return -1;
+    },
+  };
+}
+
+/** 沙丘（很宽很矮的沙堆，围边用；矮到不挡枪但有轮廓） */
+export function makeDune(seed = 1, opts = {}) {
+  const w = opts.w ?? 60, h = opts.h ?? 14, d = opts.d ?? 26;
+  const sand = 0xcdae76, sand2 = 0xbe9d64, sand3 = 0xd8bd88, shade = 0xa88a54;
+  const cx = w / 2, cz = d / 2;
+  return {
+    sx: w, sy: h, sz: d,
+    get(x, y, z) {
+      const nx = (x - cx) / (w * 0.5), nz = (z - cz) / (d * 0.5);
+      const rise = 1 - (nx * nx + nz * nz);                    // 中间高四周低
+      if (rise <= 0) return -1;
+      const top = rise * (h - 1) + (hash2(x + seed * 9, z) - 0.5) * 1.5;
+      if (y > top) return -1;
+      const r = hash2(x * 3 + seed, z * 2);
+      // 风纹：斜向条带
+      const ripple = ((x + z * 2) % 5) < 2;
+      if (y >= top - 1) return ripple ? sand3 : sand;
+      return r < 0.25 ? shade : r < 0.6 ? sand2 : sand;
+    },
+  };
+}
+
+/** 残破砂岩石柱（地标/高掩体） */
+export function makeRuinPillar(seed = 1) {
+  const w = 12, h = 34, d = 12;
+  const s1 = 0xc2a068, s2 = 0xb08c54, s3 = 0xa07c46, cap = 0xd0b478;
+  const topBreak = 22 + Math.floor(hash1(seed * 11) * 10);   // 断裂高度
+  return {
+    sx: w, sy: h, sz: d,
+    get(x, y, z) {
+      if (y > topBreak) return -1;
+      const dx = x - w / 2, dz = z - d / 2;
+      // 略收腰的方柱
+      const inset = (y > topBreak - 3) ? (topBreak - y >= 0 ? Math.floor(hash2(x + seed, z + y) * 2) : 0) : 0;
+      if (Math.abs(dx) > w / 2 - 1.5 - inset || Math.abs(dz) > d / 2 - 1.5 - inset) return -1;
+      if (y % 7 === 0) return cap;                              // 砌块横缝
+      const r = hash2(x * 3 + seed, z * 5 + y);
+      return r < 0.3 ? s3 : r < 0.65 ? s2 : s1;
+    },
+  };
+}
+
+/** 白骨（牛头骨 + 几根肋骨，沙漠点缀，不挡路） */
+export function makeBones(seed = 1) {
+  const w = 14, h = 6, d = 10;
+  const bone = 0xdcd2b4, bone2 = 0xc8bd9a;
+  return {
+    sx: w, sy: h, sz: d,
+    get(x, y, z) {
+      const dx = x - 4, dz = z - d / 2;
+      // 头骨（左侧一团）+ 两只角
+      if (y < 4 && (dx * dx) / 9 + ((y - 1) * (y - 1)) / 4 + (dz * dz) / 6 <= 1) return (hash2(x, z + y) < 0.3) ? bone2 : bone;
+      if (y >= 2 && y <= 4 && Math.abs(dz) >= 2 && Math.abs(dz) <= 3 && dx >= -2 && dx <= 0) return bone;   // 角
+      // 肋骨（右侧几根弧）
+      for (let i = 0; i < 4; i++) {
+        const rx = 8 + i * 1.4;
+        if (Math.abs(x - rx) < 0.8 && y <= 2 + Math.floor(Math.sin((z / d) * Math.PI) * 2)) return bone2;
       }
       return -1;
     },

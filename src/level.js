@@ -7,6 +7,7 @@ import { greedyMesh } from './graphics/voxel/greedyMesh.js';
 import {
   makeTerrace, makeFountain, makeTree, makeTable,
   makeStall, makeCrates, makePlanter, makeBarrel, makeStonePlatform,
+  makeRock, makeCactus, makeDeadShrub, makeDune, makeRuinPillar, makeBones,
 } from './graphics/voxel/voxelModels.js';
 import { 建筑风格 } from './graphics/voxel/styles.js';
 import { makeCobbleTextures } from './graphics/groundTexture.js';
@@ -19,15 +20,23 @@ import { makeCobbleTextures } from './graphics/groundTexture.js';
 
 export class Level {
   constructor(scene, opts = {}) {
-    this.scene = scene;
+    this.realScene = scene;
+    // 关卡所有物件都挂在 root 下，整组显隐即可切换地图（沙漠/小镇同场共存）
+    this.root = new THREE.Group();
+    scene.add(this.root);
+    this.scene = this.root;   // 内部 this.scene.add(...) 一律进 root
+    this.theme = opts.theme || 'town';   // 'town' | 'desert'
     this.colliders = [];      // {min:Vector3, max:Vector3}
     this.hitMeshes = [];      // 子弹能打中的静态物体
     this.spawnPoints = [];
     this.size = 46;           // 场地半径（正方形半边长）
     this.shadowMapSize = opts.shadowMapSize || 2048;
-    this.sun = null;          // 月光方向光（供画质切换时调整阴影分辨率）
+    this.sun = null;          // 主方向光（供画质切换时调整阴影分辨率）
     this.build();
   }
+
+  /** 整组显隐：不可见时其灯光也不参与渲染（three.js 跳过 visible=false 的对象与灯光） */
+  setActive(v) { this.root.visible = v; }
 
   /** 登记一个盒子障碍物 */
   addBox(x, y, z, w, h, d, color, opts = {}) {
@@ -64,10 +73,14 @@ export class Level {
   build() {
     const S = this.size;
 
-    // ---------- 地面（鹅卵石广场）----------
+    const desert = this.theme === 'desert';
+
+    // ---------- 地面 ----------
     const groundGeo = new THREE.PlaneGeometry(S * 2, S * 2, 1, 1);
-    const groundMat = new THREE.MeshStandardMaterial({ color: 0xb8a888, roughness: 0.95, metalness: 0 });
-    if (GFX.体素细节 !== false) {
+    const groundMat = desert
+      ? new THREE.MeshStandardMaterial({ color: 0xcaa96f, roughness: 1.0, metalness: 0 })
+      : new THREE.MeshStandardMaterial({ color: 0xb8a888, roughness: 0.95, metalness: 0 });
+    if (!desert && GFX.体素细节 !== false) {
       try {
         const { map, normalMap } = makeCobbleTextures(512, 11);
         const rep = S * 2 / 4.5;              // 每 ~4.5m 一块贴图
@@ -85,19 +98,20 @@ export class Level {
     this.hitMeshes.push(ground);
     this.ground = ground;   // 网格线已去掉（和石板风格冲突）
 
-    // ---------- 外墙 ----------
+    // ---------- 外墙（沙漠=砂岩峡谷壁；小镇=深色围墙）----------
     const wallH = 7;
-    const wallColor = 0x353b44;
-    this.addBox(0, 0, -S, S * 2, wallH, 1.2, wallColor);
-    this.addBox(0, 0, S, S * 2, wallH, 1.2, wallColor);
-    this.addBox(-S, 0, 0, 1.2, wallH, S * 2, wallColor);
-    this.addBox(S, 0, 0, 1.2, wallH, S * 2, wallColor);
+    const wallColor = desert ? 0x9a7a4c : 0x353b44;
+    this.addBox(0, 0, -S, S * 2, wallH, 1.2, wallColor, { roughness: desert ? 1.0 : 0.85 });
+    this.addBox(0, 0, S, S * 2, wallH, 1.2, wallColor, { roughness: desert ? 1.0 : 0.85 });
+    this.addBox(-S, 0, 0, 1.2, wallH, S * 2, wallColor, { roughness: desert ? 1.0 : 0.85 });
+    this.addBox(S, 0, 0, 1.2, wallH, S * 2, wallColor, { roughness: desert ? 1.0 : 0.85 });
 
-    // ---------- 中央石台（可登高）：碰撞在此，视觉在 addVoxelShowcase ----------
+    // ---------- 中央高台（可登高）：碰撞在此，视觉在 showcase ----------
     this.addCollider(0, 0, 0, 12, 3.2, 12);
     // 东侧台阶：4 级，每级 0.8 米，走上去就能上台
+    const stairColor = desert ? 0xbf9a5e : 0xa89a7c;
     for (let i = 0; i < 4; i++) {
-      this.addBox(9.6 - i * 1.4, 0, 0, 1.4, 0.8 * (i + 1), 4.4, 0xa89a7c, { roughness: 0.9 });
+      this.addBox(9.6 - i * 1.4, 0, 0, 1.4, 0.8 * (i + 1), 4.4, stairColor, { roughness: desert ? 1.0 : 0.9 });
     }
     // 台阶入口（玩家在平台上时，把僵尸先引到这里来爬楼）
     this.stairEntrance = new THREE.Vector3(10.8, 0, 0);
@@ -140,8 +154,12 @@ export class Level {
     this.flow = new FlowField(this.colliders, this.size, 1.6);
   }
 
-  /** 暖光窗户（一个 InstancedMesh，1 draw call）+ 街灯，营造黄昏温馨氛围 */
+  /** 氛围：小镇=暖窗+街灯+南法街景；沙漠=沙丘/仙人掌/巨石/废柱 */
   buildAmbiance() {
+    if (this.theme === 'desert') {
+      if (GFX.体素细节 !== false) this.addDesertShowcase();
+      return;
+    }
     if (GFX.暖窗 !== false) this.addWindows();
     if (GFX.街灯 !== false) this.addLamps();
     if (GFX.体素细节 !== false) this.addVoxelShowcase();
@@ -319,6 +337,7 @@ export class Level {
   }
 
   buildLights() {
+    if (this.theme === 'desert') return this.buildDesertLights();
     // 半球光：上冷天光 / 下暖地面反弹（可读的黄昏，不再纯黑）
     this.scene.add(new THREE.HemisphereLight(0x9aa8d0, 0x7a5e40, 1.6));
     // 环境光补暗部（暖一点）
@@ -346,6 +365,67 @@ export class Level {
     sun.shadow.normalBias = 0.03;        // 防自阴影/漏光
     this.scene.add(sun);
     this.sun = sun;
+  }
+
+  /** 沙漠白天强光：炽热天光 + 高角度暖白太阳 + 硬阴影 */
+  buildDesertLights() {
+    // 半球光：上天蓝 / 下暖沙反弹，整体明亮
+    this.scene.add(new THREE.HemisphereLight(0xbfd4ec, 0xd8b878, 2.1));
+    this.scene.add(new THREE.AmbientLight(0xffe8c0, 0.4));
+
+    const sun = new THREE.DirectionalLight(0xfff2d0, 3.0);   // 炽白日照
+    sun.position.set(24, 66, 30);
+    sun.target.position.set(0, 0, 0);
+    this.scene.add(sun.target);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(this.shadowMapSize, this.shadowMapSize);
+    const d = 42;
+    sun.shadow.camera.left = -d; sun.shadow.camera.right = d;
+    sun.shadow.camera.top = d; sun.shadow.camera.bottom = -d;
+    sun.shadow.camera.near = 1; sun.shadow.camera.far = 150;
+    sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.03;
+    this.scene.add(sun);
+    this.sun = sun;
+  }
+
+  /** 沙漠街景：中央砂岩台 + 巨石/仙人掌/枯灌木掩体（复用同一套碰撞点）+ 围边沙丘/废柱/白骨 */
+  addDesertShowcase() {
+    const vs = 0.16;
+    const sandPal = { stone: 0xc2a068, stone2: 0xb08c54, cap: 0xd0b478, dark: 0x8a6a3c };
+
+    // 中央砂岩高台（视觉；碰撞已在 build 登记）
+    this.placeVoxel(makeStonePlatform(76, 22, sandPal), vs, 0, 0, 0, { batch: 'props', rough: 1.0 });
+
+    // 高掩体（原摊位点）→ 砂岩巨砾
+    this.stallSpots.forEach(([x, z, rot], i) =>
+      this.placeVoxel(makeRock(i + 1, { w: 40, h: 24, d: 26 }), vs, x, z, rot, { batch: 'rocks' }));
+    // 中掩体（原箱堆点）→ 中巨石
+    this.crateSpots.forEach(([x, z], i) =>
+      this.placeVoxel(makeRock(i + 3, { w: 20, h: 16, d: 15 }), vs, x, z, (i % 4) * Math.PI / 2, { batch: 'rocks' }));
+    // 矮掩体（原花坛点）→ 枯灌木/矮岩
+    this.planterSpots.forEach(([x, z], i) =>
+      this.placeVoxel(makeDeadShrub(i + 1), vs, x, z, (i % 2) * Math.PI / 2, { batch: 'shrubs' }));
+    // 小掩体（原酒桶点）→ 仙人掌
+    this.barrelSpots.forEach(([x, z], i) =>
+      this.placeVoxel(makeCactus(i + 1), vs, x, z, 0, { batch: 'cacti' }));
+
+    // 围边沙丘（贴外墙一圈，矮不挡枪，只做轮廓）
+    const S = this.size, e = S - 5;
+    const dunes = [
+      [0, -e, 0], [0, e, 0], [-e, 0, Math.PI / 2], [e, 0, Math.PI / 2],
+      [-e * 0.6, -e, 0], [e * 0.6, -e, 0], [-e * 0.6, e, 0], [e * 0.6, e, 0],
+      [-e, -e * 0.55, Math.PI / 2], [-e, e * 0.55, Math.PI / 2], [e, -e * 0.55, Math.PI / 2], [e, e * 0.55, Math.PI / 2],
+    ];
+    dunes.forEach(([x, z, rot], i) => this.placeVoxel(makeDune(i + 1, { w: 62, h: 13, d: 24 }), vs, x, z, rot, { batch: 'dunes' }));
+
+    // 地标：几根残破石柱 + 白骨点缀（不挡路）
+    const pillars = [[-34, -30], [33, -34], [-36, 30], [36, 32]];
+    pillars.forEach(([x, z], i) => this.placeVoxel(makeRuinPillar(i + 1), vs, x, z, 0, { batch: 'ruins', collide: true }));
+    const bones = [[-8, -30], [18, 30], [-30, 8], [28, -14]];
+    bones.forEach(([x, z], i) => this.placeVoxel(makeBones(i + 1), vs, x, z, (i % 4) * Math.PI / 2, { batch: 'bones' }));
+
+    this.flushBatches();
+    this.voxelStats = { tris: this._voxTris };
   }
 
   /** 玩家出生位置 */

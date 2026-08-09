@@ -29,6 +29,13 @@ export class Minimap {
     this.bakeStatic();
   }
 
+  /** 切换关卡（沙漠/小镇）：重烘掩体轮廓 */
+  setLevel(level) {
+    this.level = level;
+    this.S = level.size;
+    if (this.staticCanvas) this.bakeStatic();
+  }
+
   w2m(x, z) {
     const k = this.size / (this.S * 2);
     return [this.size / 2 + x * k, this.size / 2 + z * k];

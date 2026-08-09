@@ -234,3 +234,13 @@
 - **改了哪些文件**：`config.js`(武器.加特林)、`weapon.js`(slots 加入)、`graphics/voxel/weapons.js`(builder+DIMS+MUZ_Y)、`main.js`(Digit6 热键 + preventDefault)、`index.html`(HUD 提示 + 帮助里的选枪说明)。
 - **自测**（`_gattest.mjs`）：切枪→名字「加特林 M134」、弹药 200/400、模型 898 三角 4 部件、开火掉弹、HUD 正确、0 报错。截图 `gatling.png`（持枪在手，左侧弹箱清晰）。
 - **给你早上的问题**：数值都在 `config.js` 的 `武器.加特林`。嫌 600 发太多/太少就改 `弹匣`+`备弹`(两者之和=总弹药)；嫌太猛就降 `射速` 或 `伤害`。
+
+### 第四波 · 沙漠地图（第二张关卡）✅
+- **做了什么**：击败第三波 Boss 后不再直接通关，而是**撤入沙漠地图**打最后一波（第四波），清空沙漠尸潮才算最终通关。
+  - **第二张关卡**：`Level` 加 `theme:'town'|'desert'`。两张图同场共存、各自一个 `root` group，切图=整组显隐（`setActive`，隐藏时其灯光也不参与渲染）。复用同一套碰撞点，所以流场/掩体位置一致，只换皮。
+  - **沙漠视觉**（`voxelModels.js` 新道具 + `addDesertShowcase`）：砂岩地面、白天强光（炽白日照+天蓝半球光）、砂岩中央高台、巨石/仙人掌(带顶花)/枯灌木掩体、围边沙丘、残破石柱地标、白骨点缀。
+  - **氛围切换**（`atmosphere.js` 新 `applyBiome`）：雾色/背景/曝光/环境 IBL 一起换——沙漠是暖沙雾+更亮曝光+天蓝→暖沙的环境贴图；小镇仍是夜色。按生态缓存不重建。
+  - **流程**：`startNextWave` 第 3 波=Boss、第 4 波=沙漠尸潮(26 只)；`onBossKilled` 改为切沙漠+开第四波；沙漠波清空→`onFinalWin` 通关；重开局自动切回小镇。
+- **改了哪些文件**：`level.js`(root+theme+沙漠灯光/街景)、`graphics/voxel/voxelModels.js`(makeRock/Cactus/DeadShrub/Dune/RuinPillar/Bones + 石台配色)、`graphics/atmosphere.js`(applyBiome/生态缓存)、`config/gameplay.js`(沙漠 配置)、`main.js`(第二关卡+activeLevel+切图+波次/胜负流程)、`minimap.js`(setLevel 重烘)。
+- **自测**：Boss 在小镇打→击杀切沙漠(wave4/biome desert/26 只)→清空 state=WIN「☀ 你活着走出了沙漠！」→重开局回小镇(wave0/z20)，全程 0 报错；小镇基础 selftest 仍 ok（draw 99，隐藏的沙漠不占 draw call）。截图 `desert.png`。
+- **给你早上的问题**：沙漠波数量在 `gameplay.js` 的 `沙漠.数量`(现 26)；想让第四波也是 Boss 或双 Boss，跟我说，`onBossKilled` 里换一行就行。
