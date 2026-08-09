@@ -17,6 +17,10 @@ const box = (x, y, z, x0, x1, y0, y1, z0, z1) => x >= x0 && x <= x1 && y >= y0 &
 const cyl = (x, y, cx, cy, r) => { const dx = x - cx, dy = y - cy; return dx * dx + dy * dy <= r * r; };
 const ring = (x, y, cx, cy, r, r2) => { const dx = x - cx, dy = y - cy, d = dx * dx + dy * dy; return d <= r * r && d >= r2 * r2; };
 
+// 加特林 6 根旋转枪管在中心周围一圈的偏移（半径 2.6）
+const GAT_BARRELS = [];
+for (let k = 0; k < 6; k++) GAT_BARRELS.push([Math.cos(k * Math.PI / 3) * 2.6, Math.sin(k * Math.PI / 3) * 2.6]);
+
 const BUILDERS = {
   // ============ 步枪 AR-15 ============ sx5 sy22 sz72
   步枪(x, y, z) {
@@ -146,12 +150,49 @@ const BUILDERS = {
     if (box(x, y, z, 0, 4, cy + 4, cy + 6, 74, 80)) return [TAN, 'body'];     // 腮托
     return null;
   },
+
+  // ============ 加特林 M134 ============ sx9 sy20 sz76（6 管旋转机枪）
+  加特林(x, y, z) {
+    const cx = 4, cy = 10;
+    // 6 根旋转枪管（前段）+ 中心转轴
+    if (z <= 41) {
+      for (let k = 0; k < 6; k++) {
+        if (cyl(x, y, cx + GAT_BARRELS[k][0], cy + GAT_BARRELS[k][1], 1.0))
+          return [(k % 2) ? MET2 : MET, 'body'];
+      }
+      if (cyl(x, y, cx, cy, 0.9)) return [DARK, 'body'];        // 中心转轴
+    }
+    // 枪管前端固定盘（把 6 管箍在一起）
+    if (z >= 4 && z <= 8 && ring(x, y, cx, cy, 3.9, 3.5)) return [DARK, 'body'];
+    // 转子外壳前盘
+    if (z >= 42 && z <= 47 && cyl(x, y, cx, cy, 4.0)) return [(z % 2) ? MET2 : MET, 'body'];
+    // 主机匣（粗圆柱）
+    if (z >= 47 && z <= 66 && cyl(x, y, cx, cy, 3.8)) {
+      if (z >= 49 && z <= 51) return [DARK, 'body'];            // 一圈凹槽
+      return [((z & 3) === 0) ? MET2 : MET, 'body'];
+    }
+    // 顶部馈弹盖/瞄准条
+    if (box(x, y, z, cx - 1, cx + 1, cy + 4, cy + 5, 44, 66)) return [SIGHT, 'body'];
+    // 左侧弹箱（弹链从这里进；换弹时整箱掉换，作 mag 部件）
+    if (box(x, y, z, cx - 7, cx - 4, cy - 6, cy + 2, 50, 66)) return [TAN, 'body'];
+    if (box(x, y, z, cx - 7, cx - 4, cy - 7, cy - 6, 50, 66)) return [DARK, 'body'];   // 箱底
+    // 弹链（从弹箱到机匣的一小段，黄铜感用 WOOD 近似）
+    if (box(x, y, z, cx - 4, cx - 2, cy - 3, cy - 1, 56, 60)) return [WOOD, 'mag'];
+    if (box(x, y, z, cx - 6, cx - 4, cy - 5, cy + 1, 52, 64)) return [MET2, 'mag'];     // 可动供弹机
+    // 尾部背板
+    if (box(x, y, z, cx - 4, cx + 4, cy - 3, cy + 3, 66, 70)) return [POLY, 'body'];
+    // 双匙形握把（后方两侧手柄）
+    if (box(x, y, z, cx - 5, cx - 3, cy - 5, cy - 2, 68, 75)) return [GRIP, 'body'];
+    if (box(x, y, z, cx + 3, cx + 5, cy - 5, cy - 2, 68, 75)) return [GRIP, 'body'];
+    if (box(x, y, z, cx - 5, cx + 5, cy - 3, cy - 2, 72, 74)) return [MET2, 'body'];    // 两握把间横梁
+    return null;
+  },
 };
 
 const DIMS = {
-  步枪: [5, 22, 72], 手枪: [5, 16, 26], 霰弹枪: [5, 18, 60], 火箭筒: [7, 16, 64], 狙击枪: [5, 24, 84],
+  步枪: [5, 22, 72], 手枪: [5, 16, 26], 霰弹枪: [5, 18, 60], 火箭筒: [7, 16, 64], 狙击枪: [5, 24, 84], 加特林: [9, 20, 76],
 };
-const MUZ_Y = { 步枪: 12, 手枪: 11, 霰弹枪: 13, 火箭筒: 8, 狙击枪: 11 };
+const MUZ_Y = { 步枪: 12, 手枪: 11, 霰弹枪: 13, 火箭筒: 8, 狙击枪: 11, 加特林: 10 };
 
 export function makeWeaponMesh(type) {
   const b = BUILDERS[type] || BUILDERS.步枪;

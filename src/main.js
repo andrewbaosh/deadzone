@@ -204,19 +204,20 @@ document.addEventListener('keydown', (e) => {
   if (state !== STATE.PLAYING) return;
   player.onKey(e.code, true);
   if (e.code === 'KeyR') weapons.startReload();
-  // CS 风格选枪：1步枪 2手枪 3霰弹 4火箭 5狙击
+  // CS 风格选枪：1步枪 2手枪 3霰弹 4火箭 5狙击 6加特林
   if (e.code === 'Digit1') weapons.switchTo('步枪');
   if (e.code === 'Digit2') weapons.switchTo('手枪');
   if (e.code === 'Digit3') weapons.switchTo('霰弹枪');
   if (e.code === 'Digit4') weapons.switchTo('火箭筒');
   if (e.code === 'Digit5') weapons.switchTo('狙击枪');
+  if (e.code === 'Digit6') weapons.switchTo('加特林');
   if (e.code === 'KeyQ') weapons.quickSwitch();                   // CS：Q 快速切回上一把
   if (e.code === 'KeyF') aimToggle = !aimToggle;                  // 开/关瞄准镜（狙击开镜）
   if (e.code === 'KeyE') { const i = (weapons.slots.indexOf(weapons.current) + 1) % weapons.slots.length; weapons.switchByIndex(i); } // 循环换枪（备用）
   if (e.code === 'KeyM') { const on = toggleMusic(); flashWaveBanner(on ? '♪ 音乐开' : '♪ 音乐关'); }
   if (e.code === 'F7') { quality.cycleTier(); flashWaveBanner('画质 ' + quality.tierName); }
   if (e.code === 'F8') { statsPanel.toggle(); }
-  if (['KeyW','KeyA','KeyS','KeyD','Space','KeyR','KeyQ','KeyE','KeyF','KeyM','Digit1','Digit2','Digit3','Digit4','Digit5'].includes(e.code)) e.preventDefault();
+  if (['KeyW','KeyA','KeyS','KeyD','Space','KeyR','KeyQ','KeyE','KeyF','KeyM','Digit1','Digit2','Digit3','Digit4','Digit5','Digit6'].includes(e.code)) e.preventDefault();
 });
 document.addEventListener('keyup', (e) => player.onKey(e.code, false));
 

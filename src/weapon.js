@@ -15,7 +15,7 @@ export class WeaponSystem {
     this.camera = camera;
     this.scene = scene;
 
-    this.slots = ['手枪', '步枪', '霰弹枪', '火箭筒', '狙击枪'];
+    this.slots = ['手枪', '步枪', '霰弹枪', '火箭筒', '狙击枪', '加特林'];
     this.ammo = {};       // 每把枪的当前弹匣/备弹
     for (const k of this.slots) {
       this.ammo[k] = { mag: 武器[k].弹匣, reserve: 武器[k].备弹 };
