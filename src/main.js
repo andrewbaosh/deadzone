@@ -295,6 +295,8 @@ function 武器Config(k) { return 武器Table[k]; }
 
 function startNextWave() {
   wave++;
+  // 第 N 波直接是 Boss（这一波没有小丧尸）
+  if (wave >= BOSS.出现波数) { spawnBoss(); return; }
   waveActive = true;
   killsThisWave = 0;
   let count = Math.round(波次.第一波数量 + (wave - 1) * 波次.每波增加);
@@ -367,13 +369,8 @@ function updateWaves(dt) {
   if (toSpawn <= 0 && aliveCount() === 0) {
     score += 分数.过波奖励;
     waveActive = false;
-    // 撑够波数 -> Boss 登场；否则继续下一波
-    if (wave >= BOSS.出现波数) {
-      spawnBoss();
-    } else {
-      restTimer = 波次.波间休息;
-      flashWaveBanner(`第 ${wave} 波 完成 +${分数.过波奖励}`);
-    }
+    restTimer = 波次.波间休息;
+    flashWaveBanner(`第 ${wave} 波 完成 +${分数.过波奖励}`);
   }
 }
 
