@@ -158,8 +158,8 @@ export class RifleBoss {
     if (dist > KD + 2) { mvx = to.x; mvz = to.z; }
     else if (dist < RET) { mvx = -to.x; mvz = -to.z; }
     this.strafeT -= dt;
-    if (this.strafeT <= 0) { this.strafeT = 1.2 + Math.random() * 1.6; this.strafeDir *= -1; }
-    mvx += to.z * this.strafeDir * 0.55; mvz += -to.x * this.strafeDir * 0.55;   // 垂直方向侧移
+    if (this.strafeT <= 0) { this.strafeT = 1.6 + Math.random() * 1.8; this.strafeDir *= -1; }
+    mvx += to.z * this.strafeDir * 0.35; mvz += -to.x * this.strafeDir * 0.35;   // 垂直方向侧移（已调缓，好瞄）
     const ml = Math.hypot(mvx, mvz);
     if (ml > 0.001) { pos.x += (mvx / ml) * sp * dt; pos.z += (mvz / ml) * sp * dt; }
     pos.x = Math.max(-40, Math.min(40, pos.x)); pos.z = Math.max(-40, Math.min(40, pos.z));
