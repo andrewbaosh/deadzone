@@ -20,11 +20,12 @@ import { DynamicLights } from './graphics/DynamicLights.js';
 import { EyeField } from './graphics/EyeField.js';
 import { makeDetailNormal } from './graphics/detailTexture.js';
 import { 打击感, 波次曲线, 音效氛围, 掉落, 受击指示 } from './config/gameplay.js';
-import { playHeartbeat, playPickup } from './audio.js';
+import { playHeartbeat, playPickup, playShot } from './audio.js';
 import { Pickups } from './pickups.js';
 import { Minimap } from './minimap.js';
 import { Boss } from './boss.js';
-import { BOSS, 沙漠 } from './config/gameplay.js';
+import { RifleBoss } from './rifleBoss.js';
+import { BOSS, 沙漠, 步枪Boss } from './config/gameplay.js';
 
 /* ============ 渲染基础 ============ */
 const canvas = document.getElementById('game');
@@ -153,6 +154,7 @@ const hud = {
   pickupToast: el('pickup-toast'),
   bossHud: el('boss-hud'),
   bossFill: el('boss-hud').querySelector('.boss-fill'),
+  bossName: el('boss-hud').querySelector('.boss-name'),
 };
 
 function setCenterMsg(html, show = true) {
@@ -314,6 +316,8 @@ function startNextWave() {
   wave++;
   // 第 3 波正好是 Boss（这一波没有小丧尸）
   if (wave === BOSS.出现波数) { spawnBoss(); return; }
+  // 第 5 波：拿突击步枪的远程 Boss
+  if (wave === 步枪Boss.出现波数) { spawnRifleBoss(); return; }
   waveActive = true;
   killsThisWave = 0;
   // 第 4 波 = 沙漠决战：固定一大波，清空即最终通关
@@ -393,11 +397,10 @@ function updateWaves(dt) {
   // 本波清完
   if (toSpawn <= 0 && aliveCount() === 0) {
     waveActive = false;
-    // 沙漠决战清空 = 最终通关
-    if (wave >= 沙漠.波数) { onFinalWin(); return; }
     score += 分数.过波奖励;
     restTimer = 波次.波间休息;
-    flashWaveBanner(`第 ${wave} 波 完成 +${分数.过波奖励}`);
+    // 沙漠尸潮清空 → 提示准备迎接持枪 Boss
+    flashWaveBanner(wave === 沙漠.波数 ? `沙漠尸潮 清空！尖兵将至…` : `第 ${wave} 波 完成 +${分数.过波奖励}`);
   }
 }
 
@@ -504,6 +507,27 @@ function spawnBoss() {
   playWaveStart();
   setCenterMsg('', false);
   flashWaveBanner('⚠ 腐化巨兽 降临！');
+  hud.bossName.textContent = '腐化巨兽 · BOSS';
+  hud.bossHud.style.display = 'block';
+}
+
+// 第五波：拿突击步枪的远程 Boss「沙漠尖兵」
+function spawnRifleBoss() {
+  bossActive = true;
+  waveActive = false;
+  for (const en of enemies) en.remove();
+  enemies = [];
+  const spawn = new THREE.Vector3(0, 0, -24);
+  boss = new RifleBoss(scene, spawn, wave, {
+    damagePlayer: (dmg, src) => { if (player.alive) damagePlayer(dmg, clock.elapsedTime, src); },
+    shake: (a) => addShake(a * 手感.屏幕震动),
+    dropSupply: (pos) => pickups.spawn(pos, Math.random() < 0.5 ? 'ammo' : 'health'),
+    shoot: () => playShot({ ...武器Config('步枪').音色, 音量: (武器Config('步枪').音色.音量 ?? 0.8) * 0.6 }),
+  });
+  playWaveStart();
+  setCenterMsg('', false);
+  flashWaveBanner('⚠ 沙漠尖兵 · 持枪来袭！');
+  hud.bossName.textContent = '沙漠尖兵 · BOSS';
   hud.bossHud.style.display = 'block';
 }
 
@@ -533,15 +557,23 @@ function transitionToDesert() {
   setCenterMsg('', false);   // 清掉可能残留的"下一波"提示
 }
 
-// 最终通关（沙漠最后一波清空）
+// 击败第五波「沙漠尖兵」= 最终通关
+function onRifleBossKilled() {
+  bossActive = false;
+  if (boss) { boss.remove(); boss = null; }
+  hud.bossHud.style.display = 'none';
+  onFinalWin();
+}
+
+// 最终通关
 function onFinalWin() {
   state = STATE.WIN;
   score += 分数.撤离成功 * 2;
   stopMusic(); stopAmbient();
   document.exitPointerLock();
   setCenterMsg(
-    `<div class="big win">☀ 你活着走出了沙漠！</div>
-     <div class="sub">通关！击败巨兽 + 挺过沙漠尸潮 · 击杀 ${kills} · 得分 ${score}</div>
+    `<div class="big win">☀ 你打穿了整片沙漠！</div>
+     <div class="sub">通关！巨兽 + 沙漠尸潮 + 沙漠尖兵 全清 · 击杀 ${kills} · 得分 ${score}</div>
      <div class="restart-btn" id="restart-btn">点击再来一局</div>`
   );
   setTimeout(() => {
@@ -638,7 +670,7 @@ function processShot(shot) {
     if (en.dead) continue;
     targets.push(en.head, en.torso, en.legL, en.legR, en.armL, en.armR);
   }
-  if (boss && !boss.dead) targets.push(boss.head, boss.body);
+  if (boss && !boss.dead) targets.push(...boss.hitMeshes);
 
   for (const dir of shot.rays) {
     raycaster.set(_origin, dir);
@@ -662,7 +694,7 @@ function processShot(shot) {
       shot.onHit(isHead);
       showHitmarker(isHead);
       if (手感.显示伤害数字) {
-        effects.addFloatingNumber(hit.point, String(Math.round(dmg * (isHead ? BOSS.头部倍率 : 1))), isHead ? 'headshot' : 'hit');
+        effects.addFloatingNumber(hit.point, String(Math.round(dmg * (isHead ? bo.headMul : 1))), isHead ? 'headshot' : 'hit');
       }
       continue;
     }
@@ -906,7 +938,7 @@ function frame() {
 
     // 大 Boss
     if (boss) {
-      if (boss.dead) { onBossKilled(); }
+      if (boss.dead) { if (boss.kind === 'rifle') onRifleBossKilled(); else onBossKilled(); }
       else {
         boss.update(simDt, player.pos, effects);
         hud.bossFill.style.width = `${(boss.hp / boss.maxHp) * 100}%`;
@@ -1073,10 +1105,12 @@ window.__game = {
   forceExtraction() { wave = 撤离.开启波数; openExtraction(); return extraction.position.toArray(); },
   // 测试：直接召唤 Boss
   forceBoss() { wave = Math.max(wave, BOSS.出现波数); spawnBoss(); return { hp: boss.hp, maxHp: boss.maxHp }; },
-  get boss() { return boss ? { hp: boss.hp, maxHp: boss.maxHp, dead: boss.dead, pos: boss.root.position.toArray(), fireballs: boss.fireballs.length } : null; },
+  get boss() { return boss ? { kind: boss.kind, hp: boss.hp, maxHp: boss.maxHp, dead: boss.dead, pos: boss.root.position.toArray(), state: boss.state ?? null } : null; },
   bossTakeDamage(dmg, head = false) { if (boss) { const d = boss.takeDamage(dmg, head, effects); return { hp: boss.hp, killed: d }; } return null; },
   // 测试：直接撤入沙漠打第四波
   forceDesert() { wave = BOSS.出现波数; if (boss) { boss.remove(); boss = null; } bossActive = false; onBossKilled(); return { biome: scene._biome, activeIsDesert: activeLevel === desert, toSpawn, spawns: activeLevel.spawnPoints.length }; },
+  // 测试：直接在沙漠召唤第五波持枪 Boss
+  forceRifleBoss() { if (activeLevel !== desert) transitionToDesert(); wave = 步枪Boss.出现波数; if (boss) { boss.remove(); boss = null; } spawnRifleBoss(); return { kind: boss.kind, hp: boss.hp, maxHp: boss.maxHp, name: hud.bossName.textContent }; },
   get biome() { return scene._biome; },
   // 测试：把玩家瞬移到撤离点内并推进停留判定
   tickExtraction(dt) { updateExtractionPhase(dt); return { holdProgress, state, extractionActive }; },

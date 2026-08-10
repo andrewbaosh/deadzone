@@ -57,6 +57,8 @@ function bossParts() {
 /* ---------------- Boss ---------------- */
 export class Boss {
   constructor(scene, pos, wave, hooks) {
+    this.kind = 'brute';
+    this.headMul = BOSS.头部倍率;
     this.scene = scene;
     this.hooks = hooks;   // { damagePlayer, knockback, shake, aimDisrupt, dropSupply }
     this.dead = false;

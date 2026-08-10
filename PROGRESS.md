@@ -244,3 +244,12 @@
 - **改了哪些文件**：`level.js`(root+theme+沙漠灯光/街景)、`graphics/voxel/voxelModels.js`(makeRock/Cactus/DeadShrub/Dune/RuinPillar/Bones + 石台配色)、`graphics/atmosphere.js`(applyBiome/生态缓存)、`config/gameplay.js`(沙漠 配置)、`main.js`(第二关卡+activeLevel+切图+波次/胜负流程)、`minimap.js`(setLevel 重烘)。
 - **自测**：Boss 在小镇打→击杀切沙漠(wave4/biome desert/26 只)→清空 state=WIN「☀ 你活着走出了沙漠！」→重开局回小镇(wave0/z20)，全程 0 报错；小镇基础 selftest 仍 ok（draw 99，隐藏的沙漠不占 draw call）。截图 `desert.png`。
 - **给你早上的问题**：沙漠波数量在 `gameplay.js` 的 `沙漠.数量`(现 26)；想让第四波也是 Boss 或双 Boss，跟我说，`onBossKilled` 里换一行就行。
+
+### 第五波 · 持枪 Boss「沙漠尖兵」✅
+- **做了什么**：第四波沙漠尸潮清空后，第五波来一个**拿突击步枪的远程 Boss**——击杀它才是最终通关。和近战/AOE 的巨兽完全不同的打法。
+  - **体素模型**（`rifleBoss.js`，BVS=0.15，直立人形）：护甲躯干+露骨肩甲+双腿+红眼，双臂前伸**托着一把突击步枪**（机匣/枪管/弹匣/枪托/瞄具），枪口指向玩家。
+  - **AI**：面向玩家、保持约 16m 距离（太近就后撤）、左右**走位**；开火前枪口**亮红光预警 0.5s**（看到就跑），然后一次 5 发点射；每 4 次点射长换弹给你喘息。
+  - **命中机制（可躲）**：开火瞬间锁定你当时的位置打，弹着点在那点附近散布——**你原地不动约五成中，看到红光就走位基本能躲**。单发 8 伤、命中判定半径 1.5m。血 3200、头部 2.2× 弱点、每掉 25% 血掉补给。
+- **改了哪些文件**：新增 `rifleBoss.js`；`config/gameplay.js`(步枪Boss 配置)、`boss.js`(加 kind/headMul)、`main.js`(spawnRifleBoss/onRifleBossKilled、帧循环按 kind 分派、命中检测改用 boss.hitMeshes、波次流程 wave5=持枪Boss、HUD 名字切换、开枪音效)、`index.html`(BOSS 名字改成可切换)。
+- **自测**：召唤→名字「沙漠尖兵 · BOSS」、血 3200、打头 10×100=掉 2200(证实 2.2×)、原地不动被点射掉血到 92(证实会射击命中)、秒杀→最终通关「☀ 你打穿了整片沙漠！」；完整链路 沙漠尸潮清空→自动进第五波持枪Boss(不提前通关)；小镇 selftest 仍 ok；全程 0 报错。截图 `rifleboss.png`。
+- **给你早上的问题**：太难就调 `gameplay.js` 的 `步枪Boss`——调大 `命中半径`/`落点抖动` 反而更难躲，调小更好躲；`预警` 调长更好躲；`单发伤害`/`连射` 降低更肉。想让它也召唤小兵或加第二技能，跟我说。
