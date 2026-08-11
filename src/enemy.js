@@ -13,23 +13,25 @@ const _move = new THREE.Vector3();
  * 会朝玩家走、绕开障碍、靠近后攻击。被打中会闪红+击退。
  */
 
-// 按权重从"当前波数已解锁的类型"里随机挑一种
-function pickType(wave) {
-  const avail = Object.entries(丧尸种类).filter(([, v]) => wave >= (v.出现波数 || 1));
+// 按权重从"当前波数已解锁的类型"里随机挑一种（exclude=要排除的类型名数组）
+function pickType(wave, exclude) {
+  let avail = Object.entries(丧尸种类).filter(([, v]) => wave >= (v.出现波数 || 1));
+  if (exclude && exclude.length) avail = avail.filter(([k]) => !exclude.includes(k));
+  if (!avail.length) return '普通';
   const total = avail.reduce((s, [, v]) => s + (v.权重 || 0), 0) || 1;
   let r = Math.random() * total;
   for (const [k, v] of avail) { r -= (v.权重 || 0); if (r <= 0) return k; }
-  return '普通';
+  return avail[0][0];
 }
 
 export class Enemy {
-  constructor(scene, spawnPos, wave, forcedType) {
+  constructor(scene, spawnPos, wave, forcedType, excludeTypes) {
     this.scene = scene;
     this.dead = false;
     this.wave = wave;
 
     // 决定类型（数值集中在 gameplay.js 的 丧尸种类）
-    const typeName = forcedType && 丧尸种类[forcedType] ? forcedType : pickType(wave);
+    const typeName = forcedType && 丧尸种类[forcedType] ? forcedType : pickType(wave, excludeTypes);
     this.type = typeName;
     const cfg = 丧尸种类[typeName];
     const T = { colorBody: cfg.身色, colorHead: cfg.头色 };

@@ -357,7 +357,8 @@ function spawnOne() {
     const d = p.distanceToSquared(player.pos);
     if (d > bestD) { bestD = d; best = p; }
   }
-  const en = new Enemy(scene, best.clone(), wave);
+  const exclude = (wave === 沙漠.波数) ? 沙漠.排除类型 : null;
+  const en = new Enemy(scene, best.clone(), wave, null, exclude);
   enemies.push(en);
 }
 

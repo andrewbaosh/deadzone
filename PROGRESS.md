@@ -264,3 +264,5 @@
 - **改了哪些文件**：`config.js`(武器.砍刀)、`weapon.js`(slots+近战分支+挥砍动画+ammoText ∞)、`graphics/voxel/weapons.js`(砍刀 builder+DIMS+MUZ_Y)、`audio.js`(playMelee 挥刀声)、`main.js`(Digit7 热键+近战不画曳光)、`index.html`(HUD 提示与帮助)。
 - **自测**：切枪→「砍刀 · 近战」/∞/伤害140/射速50/射程2.8/近战true/模型188三角；正对丧尸挥砍→秒杀（100血→死）；R 换弹对近战无效仍 ∞；0 报错。截图 `knife.png`。
 - **给你早上的问题**：想更强/更弱改 `config.js` 的 `武器.砍刀`——`伤害` 一刀几点、`射速` 挥得多快、`射程` 够多远才砍得到。
+
+- **第四波调整**：沙漠尸潮不再出黄色的"快速"僵尸（`沙漠.排除类型:['快速']`），数量 26→14。做法：`pickType(wave, exclude)` 支持按类型排除，`Enemy` 构造多收一个 `excludeTypes`，`spawnOne` 在第四波传入排除表。自测：第四波 toSpawn=14、整波只出「普通」无「快速」、0 报错。
