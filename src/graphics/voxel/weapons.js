@@ -187,12 +187,36 @@ const BUILDERS = {
     if (box(x, y, z, cx - 5, cx + 5, cy - 3, cy - 2, 72, 74)) return [MET2, 'body'];    // 两握把间横梁
     return null;
   },
+
+  // ============ 砍刀 · 近战 ============ sx4 sy14 sz44（前端刀尖，后端握把）
+  砍刀(x, y, z) {
+    const STEEL = 0xc2c8d0, EDGE = 0xeef2f6, SPINE = 0x8f97a1, FUL = 0xa7adb6, GD = 0x24262b, WD = 0x5a3f26, WD2 = 0x452f1c;
+    const core = (x >= 1 && x <= 2);   // 刀身厚度（2 格）
+    // 刀身 z2..31（尖端 z<7 收拢成尖）
+    if (z >= 2 && z <= 31) {
+      let top = 12, bot = 3;
+      if (z < 7) { top = 12 - (7 - z) * 1.5; bot = 3 + (7 - z) * 0.7; }
+      if (core && y >= bot && y <= top) {
+        if (y <= bot) return [EDGE, 'body'];                          // 亮刃（下沿）
+        if (y >= top - 0.5) return [SPINE, 'body'];                   // 刀脊（上沿）
+        if (Math.round(y) === Math.round((top + bot) / 2)) return [FUL, 'body'];   // 血槽反光
+        return [STEEL, 'body'];
+      }
+    }
+    // 护手（十字挡）z31..33
+    if (z >= 31 && z <= 33 && y >= 2 && y <= 11 && x <= 3) return [GD, 'body'];
+    // 握把（缠绕木柄）z34..42
+    if (z >= 34 && z <= 42 && y >= 5 && y <= 9 && core) return [(z % 3) ? WD : WD2, 'body'];
+    // 尾锤 z42..43
+    if (z >= 42 && z <= 43 && y >= 4 && y <= 10 && x <= 3) return [GD, 'body'];
+    return null;
+  },
 };
 
 const DIMS = {
-  步枪: [5, 22, 72], 手枪: [5, 16, 26], 霰弹枪: [5, 18, 60], 火箭筒: [7, 16, 64], 狙击枪: [5, 24, 84], 加特林: [9, 20, 76],
+  步枪: [5, 22, 72], 手枪: [5, 16, 26], 霰弹枪: [5, 18, 60], 火箭筒: [7, 16, 64], 狙击枪: [5, 24, 84], 加特林: [9, 20, 76], 砍刀: [4, 14, 44],
 };
-const MUZ_Y = { 步枪: 12, 手枪: 11, 霰弹枪: 13, 火箭筒: 8, 狙击枪: 11, 加特林: 10 };
+const MUZ_Y = { 步枪: 12, 手枪: 11, 霰弹枪: 13, 火箭筒: 8, 狙击枪: 11, 加特林: 10, 砍刀: 7 };
 
 export function makeWeaponMesh(type) {
   const b = BUILDERS[type] || BUILDERS.步枪;

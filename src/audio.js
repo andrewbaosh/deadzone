@@ -255,6 +255,23 @@ export function playDryFire() {
   n.connect(f).connect(g).connect(master);
 }
 
+/** 挥刀声：一记快速的"唰"（带通噪声扫频） */
+export function playMelee() {
+  if (!ctx) return;
+  const t = now();
+  const n = noiseSource(0.22, 1.4);
+  const f = ctx.createBiquadFilter();
+  f.type = 'bandpass';
+  f.Q.value = 1.1;
+  f.frequency.setValueAtTime(900, t);
+  f.frequency.exponentialRampToValueAtTime(2600, t + 0.14);   // 上扫的"唰"
+  const g = ctx.createGain();
+  g.gain.setValueAtTime(0.0001, t);
+  g.gain.exponentialRampToValueAtTime(0.32, t + 0.05);
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
+  n.connect(f).connect(g).connect(master);
+}
+
 /** 丧尸吼叫 */
 export function playGrowl(distance = 10) {
   if (!ctx) return;

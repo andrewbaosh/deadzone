@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { 武器, 手感 } from './config.js';
-import { playShot, playReload, playDryFire, playHitmarker, playRocketFire } from './audio.js';
+import { playShot, playReload, playDryFire, playHitmarker, playRocketFire, playMelee } from './audio.js';
 import { makeWeaponMesh } from './graphics/voxel/weapons.js';
 
 const smooth = (t) => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
@@ -15,7 +15,7 @@ export class WeaponSystem {
     this.camera = camera;
     this.scene = scene;
 
-    this.slots = ['手枪', '步枪', '霰弹枪', '火箭筒', '狙击枪', '加特林'];
+    this.slots = ['手枪', '步枪', '霰弹枪', '火箭筒', '狙击枪', '加特林', '砍刀'];
     this.ammo = {};       // 每把枪的当前弹匣/备弹
     for (const k of this.slots) {
       this.ammo[k] = { mag: 武器[k].弹匣, reserve: 武器[k].备弹 };
@@ -88,6 +88,7 @@ export class WeaponSystem {
     this.slidePull = 0;        // 套筒后拉量 0~1
     this.drawT = 1;            // 掏枪动画进度（1=完成）
     this.swayX = 0; this.swayY = 0;
+    this.swinging = false; this.swingT = 0;   // 近战挥砍动画
   }
 
   switchTo(name) {
@@ -200,12 +201,36 @@ export class WeaponSystem {
       if (this.muzzleFlash.material.opacity <= 0) this.muzzleFlash.visible = false;
     }
 
+    // ---- 近战挥砍动画（斜向下劈再收回）----
+    if (this.swinging) {
+      this.swingT += dt / 0.28;
+      if (this.swingT >= 1) { this.swingT = 1; this.swinging = false; }
+      const s = Math.sin(this.swingT * Math.PI);            // 0→1→0
+      this.gun.rotation.z = -1.6 * s;                       // 斜劈
+      this.gun.rotation.x = -0.7 * s;
+      this.viewGroup.position.z = this.baseGunPos.z + this.kickZ - 0.16 * s;   // 前送
+    }
+
     this.movementFactor = moving ? 1 : 0;
 
     // 能不能开火
     const c = this.cfg;
     const wantFire = this.triggerHeld && (c.连发 || !this.triggerConsumed);
     if (!wantFire || this.reloading || this.fireCooldown > 0) return null;
+
+    // ---- 近战：无子弹、不换弹，挥砍一记（短距离，前方单体高伤）----
+    if (c.近战) {
+      this.triggerConsumed = true;
+      this.fireCooldown = 60 / c.射速;
+      this.swinging = true; this.swingT = 0;   // 触发挥砍动画
+      playMelee();
+      const camDir = new THREE.Vector3();
+      this.camera.getWorldDirection(camDir);
+      return {
+        melee: true, rays: [camDir], damage: c.伤害, headMul: c.爆头倍率, range: c.射程,
+        onHit: (isHead) => playHitmarker(isHead),
+      };
+    }
 
     const a = this.ammo[this.current];
     if (a.mag <= 0) {
@@ -296,6 +321,7 @@ export class WeaponSystem {
   }
 
   ammoText() {
+    if (this.cfg.近战) return '∞';
     const a = this.ammo[this.current];
     return `${a.mag} / ${a.reserve}`;
   }

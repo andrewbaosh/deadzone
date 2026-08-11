@@ -219,13 +219,14 @@ document.addEventListener('keydown', (e) => {
   if (e.code === 'Digit4') weapons.switchTo('火箭筒');
   if (e.code === 'Digit5') weapons.switchTo('狙击枪');
   if (e.code === 'Digit6') weapons.switchTo('加特林');
+  if (e.code === 'Digit7') weapons.switchTo('砍刀');
   if (e.code === 'KeyQ') weapons.quickSwitch();                   // CS：Q 快速切回上一把
   if (e.code === 'KeyF') aimToggle = !aimToggle;                  // 开/关瞄准镜（狙击开镜）
   if (e.code === 'KeyE') { const i = (weapons.slots.indexOf(weapons.current) + 1) % weapons.slots.length; weapons.switchByIndex(i); } // 循环换枪（备用）
   if (e.code === 'KeyM') { const on = toggleMusic(); flashWaveBanner(on ? '♪ 音乐开' : '♪ 音乐关'); }
   if (e.code === 'F7') { quality.cycleTier(); flashWaveBanner('画质 ' + quality.tierName); }
   if (e.code === 'F8') { statsPanel.toggle(); }
-  if (['KeyW','KeyA','KeyS','KeyD','Space','KeyR','KeyQ','KeyE','KeyF','KeyM','Digit1','Digit2','Digit3','Digit4','Digit5','Digit6'].includes(e.code)) e.preventDefault();
+  if (['KeyW','KeyA','KeyS','KeyD','Space','KeyR','KeyQ','KeyE','KeyF','KeyM','Digit1','Digit2','Digit3','Digit4','Digit5','Digit6','Digit7'].includes(e.code)) e.preventDefault();
 });
 document.addEventListener('keyup', (e) => player.onKey(e.code, false));
 
@@ -677,13 +678,15 @@ function processShot(shot) {
     raycaster.far = shot.range;
     const hits = raycaster.intersectObjects(targets, false);
     if (hits.length === 0) {
-      // 打空：画一条飞向远方的曳光弹
-      const end = _origin.clone().addScaledVector(dir, shot.range);
-      effects.addTracer(muzzlePos(), end);
+      // 打空：画一条飞向远方的曳光弹（近战不画曳光）
+      if (!shot.melee) {
+        const end = _origin.clone().addScaledVector(dir, shot.range);
+        effects.addTracer(muzzlePos(), end);
+      }
       continue;
     }
     const hit = hits[0];
-    effects.addTracer(muzzlePos(), hit.point);
+    if (!shot.melee) effects.addTracer(muzzlePos(), hit.point);
 
     const bo = hit.object.userData.boss;
     if (bo && !bo.dead) {
