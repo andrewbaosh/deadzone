@@ -717,10 +717,15 @@ function processShot(shot) {
       }
       if (killed) onKill(en, isHead);
     } else {
-      // 环境命中：弹孔 + 火花
+      // 环境命中
       const n = hit.face ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld) : dir.clone().negate();
-      effects.addBulletHole(hit.point, n);
-      effects.addSparks(hit.point, n, 4, 0xffcc66);
+      if (shot.melee) {
+        // 近战砍到墙/地：只溅一点火花，不留弹孔
+        effects.addSparks(hit.point, n, 3, 0xcfd6de);
+      } else {
+        effects.addBulletHole(hit.point, n);
+        effects.addSparks(hit.point, n, 4, 0xffcc66);
+      }
     }
   }
 }
@@ -1152,6 +1157,7 @@ window.__game = {
     return n;
   },
   get debrisActive() { return effects.debrisState ? effects.debrisState.filter((s) => s.active).length : 0; },
+  get holeCount() { return effects.holes.length; },
   get hitstop() { return hitstopTimer; },
   get eyeCount() { return eyeField.mesh.count; },
   get pickupCount() { return pickups.active.length; },

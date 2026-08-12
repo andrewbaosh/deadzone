@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { 武器, 手感 } from './config.js';
-import { playShot, playReload, playDryFire, playHitmarker, playRocketFire, playMelee } from './audio.js';
+import { playShot, playReload, playDryFire, playHitmarker, playRocketFire, playMelee, playMeleeHit } from './audio.js';
 import { makeWeaponMesh } from './graphics/voxel/weapons.js';
 
 const smooth = (t) => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
@@ -228,7 +228,7 @@ export class WeaponSystem {
       this.camera.getWorldDirection(camDir);
       return {
         melee: true, rays: [camDir], damage: c.伤害, headMul: c.爆头倍率, range: c.射程,
-        onHit: (isHead) => playHitmarker(isHead),
+        onHit: (isHead) => playMeleeHit(isHead),
       };
     }
 

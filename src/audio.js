@@ -255,21 +255,50 @@ export function playDryFire() {
   n.connect(f).connect(g).connect(master);
 }
 
-/** 挥刀声：一记快速的"唰"（带通噪声扫频） */
+/** 挥刀破空声：短促的"咻"（高 Q 带通向下扫 + 低通去毛刺，像刀划过空气而不是刷子） */
 export function playMelee() {
   if (!ctx) return;
   const t = now();
-  const n = noiseSource(0.22, 1.4);
-  const f = ctx.createBiquadFilter();
-  f.type = 'bandpass';
-  f.Q.value = 1.1;
-  f.frequency.setValueAtTime(900, t);
-  f.frequency.exponentialRampToValueAtTime(2600, t + 0.14);   // 上扫的"唰"
+  const n = noiseSource(0.13, 1.0);
+  const bp = ctx.createBiquadFilter();
+  bp.type = 'bandpass';
+  bp.Q.value = 6;                                      // 高 Q → 更"咻"而非"刷"
+  bp.frequency.setValueAtTime(2300, t);
+  bp.frequency.exponentialRampToValueAtTime(650, t + 0.11);   // 向下扫（破空感）
+  const lp = ctx.createBiquadFilter();
+  lp.type = 'lowpass';
+  lp.frequency.value = 3600;                           // 削掉尖锐嘶声
   const g = ctx.createGain();
   g.gain.setValueAtTime(0.0001, t);
-  g.gain.exponentialRampToValueAtTime(0.32, t + 0.05);
-  g.gain.exponentialRampToValueAtTime(0.001, t + 0.2);
-  n.connect(f).connect(g).connect(master);
+  g.gain.exponentialRampToValueAtTime(0.22, t + 0.02);  // 快起
+  g.gain.exponentialRampToValueAtTime(0.001, t + 0.12); // 快落
+  n.connect(bp).connect(lp).connect(g).connect(master);
+}
+
+/** 砍中身体：闷响"噗嗤"（低频肉响 + 短切肉噪声），爆头额外脆一点 */
+export function playMeleeHit(headshot) {
+  if (!ctx) return;
+  const t = now();
+  // 低频闷响（砍进身体的"噗"）
+  const o = ctx.createOscillator();
+  o.type = 'triangle';
+  o.frequency.setValueAtTime(headshot ? 240 : 190, t);
+  o.frequency.exponentialRampToValueAtTime(70, t + 0.10);
+  const go = ctx.createGain();
+  go.gain.setValueAtTime(0.36, t);
+  go.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+  o.connect(go).connect(master);
+  o.start(t); o.stop(t + 0.14);
+  // 切肉的短噪声（"嗤"）
+  const n = noiseSource(0.08, 1.1);
+  const bp = ctx.createBiquadFilter();
+  bp.type = 'bandpass';
+  bp.frequency.value = headshot ? 1600 : 1100;
+  bp.Q.value = 0.9;
+  const gn = ctx.createGain();
+  gn.gain.setValueAtTime(0.3, t);
+  gn.gain.exponentialRampToValueAtTime(0.001, t + 0.08);
+  n.connect(bp).connect(gn).connect(master);
 }
 
 /** 丧尸吼叫 */
