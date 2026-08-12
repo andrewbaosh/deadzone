@@ -70,19 +70,22 @@ function sendReverb(node, amt) {
 const buffers = {};   // 解码后的 AudioBuffer
 const onsets = {};    // 每个采样的起音时刻（自动跳过前面的静音）
 
+// 相对路径（不带开头的 /），加载时前置 Vite 的 BASE_URL，
+// 这样部署到 GitHub Pages 子路径（/deadzone/）也能正确取到音频。
 const SOUND_FILES = {
-  pistol: '/sounds/pistol.ogg',      // Walther PPQ 手枪
-  rifle: '/sounds/rifle.ogg',        // AR-15 步枪
-  shotgun: '/sounds/shotgun.ogg',    // Mossberg 泵动霰弹枪
-  sniper: '/sounds/sniper.ogg',      // Mosin Nagant 栓动狙击
-  rocket: '/sounds/rocket.mp3',      // 火箭发射（长录音，运行时裁剪起音段）
-  explosion: '/sounds/explosion.ogg',
+  pistol: 'sounds/pistol.ogg',       // Walther PPQ 手枪
+  rifle: 'sounds/rifle.ogg',         // AR-15 步枪
+  shotgun: 'sounds/shotgun.ogg',     // Mossberg 泵动霰弹枪
+  sniper: 'sounds/sniper.ogg',       // Mosin Nagant 栓动狙击
+  rocket: 'sounds/rocket.mp3',       // 火箭发射（长录音，运行时裁剪起音段）
+  explosion: 'sounds/explosion.ogg',
 };
 
 /** 异步加载并解码所有采样；加载完成前 playShot 会自动回退到合成音 */
 function loadSounds() {
+  const base = import.meta.env.BASE_URL || '/';
   for (const [key, url] of Object.entries(SOUND_FILES)) {
-    fetch(url)
+    fetch(base + url)
       .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(r.status)))
       .then((ab) => ctx.decodeAudioData(ab))
       .then((buf) => { buffers[key] = buf; onsets[key] = detectOnset(buf); })
