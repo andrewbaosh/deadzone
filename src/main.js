@@ -713,7 +713,8 @@ function processShot(shot) {
       const dmg = shot.damage * (isHead ? shot.headMul : 1);
       const fromDir = dir.clone(); fromDir.y = 0; fromDir.normalize();
       const killed = en.takeDamage(dmg, fromDir, effects, hit.point);
-      effects.addSparks(hit.point, dir.clone().negate(), isHead ? 8 : 5, isHead ? 0xff6644 : 0xaa3322);
+      effects.addBloodSpray(hit.point, dir, isHead ? 12 : 7);   // 被打中喷血（沿子弹方向）
+      effects.addSparks(hit.point, dir.clone().negate(), isHead ? 4 : 2, isHead ? 0xff6644 : 0xaa3322);
       shot.onHit(isHead);
       showHitmarker(isHead);
       if (手感.显示伤害数字) {
@@ -762,21 +763,36 @@ function onKill(en, isHead) {
 }
 
 /* ============ 永久尸体 + 地面血迹 ============ */
-const _bloodMat = new THREE.MeshBasicMaterial({ color: 0x5c0d0a, transparent: true, opacity: 0.62, depthWrite: false });
+const _bloodMat = new THREE.MeshBasicMaterial({ color: 0x5c0d0a, transparent: true, opacity: 0.62, depthWrite: false, side: THREE.DoubleSide });
+// 一块不规则的溅血（边缘半径随机 + 偶尔拖出长血滴），贴在 XZ 平面
+function bloodBlob(cx, cz, r) {
+  const seg = 18;
+  const rad = [];
+  for (let i = 0; i < seg; i++) rad.push(r * (0.55 + Math.random() * 0.7));
+  for (let i = 0; i < seg; i++) if (Math.random() < 0.14) rad[i] *= 1.6 + Math.random() * 1.2;   // 偶尔一道拖出的血滴
+  // 平滑一遍，避免变成锯齿星形
+  const sm = rad.map((v, i) => (rad[(i - 1 + seg) % seg] + v * 2 + rad[(i + 1) % seg]) / 4);
+  const pos = [cx, 0, cz];
+  for (let i = 0; i < seg; i++) { const a = (i / seg) * Math.PI * 2; pos.push(cx + Math.cos(a) * sm[i], 0, cz + Math.sin(a) * sm[i]); }
+  const idx = [];
+  for (let i = 0; i < seg; i++) idx.push(0, 1 + i, 1 + ((i + 1) % seg));
+  const g = new THREE.BufferGeometry();
+  g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  g.setIndex(idx);
+  return g;
+}
 function makeBloodDecal(pos, radius) {
-  // 一大两小、随机旋转/偏移的暗红血斑（合成一个几何 = 1 draw call）
+  // 主血泊 + 几块小溅斑 + 几滴远处血点，全合成一个几何（1 draw call），整体不规则
   const geos = [];
-  const blob = (cx, cz, r) => {
-    const g = new THREE.CircleGeometry(r, 10);
-    g.rotateX(-Math.PI / 2);
-    g.translate(cx, 0, cz);
-    geos.push(g);
-  };
-  const R = radius * (1.1 + Math.random() * 0.4);
-  blob(0, 0, R);
-  for (let k = 0; k < 2; k++) {
-    const a = Math.random() * Math.PI * 2, d = R * (0.6 + Math.random() * 0.5);
-    blob(Math.cos(a) * d, Math.sin(a) * d, R * (0.4 + Math.random() * 0.3));
+  const R = radius * (1.0 + Math.random() * 0.4);
+  geos.push(bloodBlob(0, 0, R));
+  for (let k = 0; k < 3; k++) {
+    const a = Math.random() * Math.PI * 2, d = R * (0.5 + Math.random() * 0.7);
+    geos.push(bloodBlob(Math.cos(a) * d, Math.sin(a) * d, R * (0.3 + Math.random() * 0.35)));
+  }
+  for (let k = 0; k < 4; k++) {   // 甩出去的小血滴
+    const a = Math.random() * Math.PI * 2, d = R * (1.1 + Math.random() * 1.2);
+    geos.push(bloodBlob(Math.cos(a) * d, Math.sin(a) * d, R * (0.08 + Math.random() * 0.14)));
   }
   const merged = mergeGeometries(geos, false);
   geos.forEach((g) => g.dispose());
@@ -1215,6 +1231,8 @@ window.__game = {
   get debrisActive() { return effects.debrisState ? effects.debrisState.filter((s) => s.active).length : 0; },
   get holeCount() { return effects.holes.length; },
   get corpseCount() { return corpses.length; },
+  get bloodCount() { return effects.blood.length; },
+  get effects() { return effects; },
   get hitstop() { return hitstopTimer; },
   get eyeCount() { return eyeField.mesh.count; },
   get pickupCount() { return pickups.active.length; },

@@ -277,3 +277,13 @@
 - **改了哪些文件**：`enemy.js`(死亡不消失 + bakeCorpse + 导入 mergeGeometries)、`main.js`(corpses 池/addCorpse/makeBloodDecal/clearCorpses + 帧循环烘焙 + 重开清理 + 导入 mergeGeometries)。
 - **自测**：连杀后尸体累积并**长期不消失**（截图 40 具堆场上）、超 40 被截到上限、切沙漠无报错、重开清空；0 报错。截图 `corpses.png`（满地绿尸+血迹）。注：无头测试里 dt 被 clamp 到 0.05s 导致死亡动画慢放，尸体要几秒才烘出来；正常 60fps 下 0.6s 即倒地成尸。
 - **给你早上的问题**：觉得卡就把 `main.js` 的 `尸体上限`（现 40）调小；想尸体更暗/血更红可改 `bakeCorpse` 的材质色和 `_bloodMat`。
+
+### 血液反馈 ✅
+- **不规则血迹**：把地面血迹从"几个圆叠加"改成**不规则溅血形状**——边缘半径随机+平滑、偶尔拖出长血滴、外围甩几点小血点，整块合成 1 draw call（`makeBloodDecal`/`bloodBlob`，`_bloodMat` 改 DoubleSide）。
+- **被打中喷血**：僵尸中枪时沿子弹方向喷出一串暗红液滴（`effects.addBloodSpray`：非发光、受重力、落地/寿命到消失，上限 90）；接在 `processShot` 命中分支（原橙色火花调少）。自测：`addBloodSpray` 生成 12 滴、update 后仍在、0 报错。
+
+### 上线公网（GitHub Pages）✅
+- **做了什么**：配好一键自动部署到 GitHub Pages。`vite.config.js` 用 `base: build?'/deadzone/':'/'`（本地 dev 仍是根路径，不受影响）；`.github/workflows/deploy.yml` 每次 push 到 main 自动 `npm ci && npm run build` 并发布 `dist`。
+- **踩坑修复**：音频原来是绝对路径 `/sounds/xxx`，子路径部署会 404；改成相对路径 + `import.meta.env.BASE_URL` 前缀（`audio.js`），dev 和 Pages 都能取到。
+- **自测**：build 后 `dist/index.html` 资源路径带 `/deadzone/`、`dist/sounds/` 已拷贝；本地 dev 根路径 200、`/sounds/rifle.ogg` 200、`__game` 正常、0 报错。
+- **你要手动做一步**：仓库 Settings → Pages → Source 选 **GitHub Actions**（我改不了仓库设置）。之后每次推送自动更新，地址：**https://andrewbaosh.github.io/deadzone/**

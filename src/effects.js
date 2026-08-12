@@ -25,6 +25,10 @@ export class Effects {
     this.sparks = [];
     this.sparkGeo = new THREE.SphereGeometry(0.035, 4, 3);
 
+    // --- 血液喷溅（暗红液滴，非发光，受重力下落）---
+    this.blood = [];
+    this.bloodGeo = new THREE.SphereGeometry(0.055, 5, 4);
+
     // --- 爆炸 ---
     this.explos = [];
     this.fireballGeo = new THREE.SphereGeometry(1, 16, 12);
@@ -192,6 +196,34 @@ export class Effects {
     }
   }
 
+  /** 血液喷溅：沿子弹前进方向喷出一串暗红液滴（非发光，受重力落地消失） */
+  addBloodSpray(point, dir, count = 8) {
+    const d = dir.clone();
+    if (d.lengthSq() < 1e-4) d.set(0, 0, 1);
+    d.normalize();
+    for (let i = 0; i < count; i++) {
+      const mat = new THREE.MeshBasicMaterial({
+        color: Math.random() < 0.5 ? 0x7a0d0b : 0x5a0807,
+        transparent: true, opacity: 0.95, depthWrite: false,
+      });
+      const s = new THREE.Mesh(this.bloodGeo, mat);
+      s.position.copy(point);
+      const v = d.clone().multiplyScalar(2.2 + Math.random() * 4.2)
+        .add(new THREE.Vector3((Math.random() - 0.5) * 3, 1.4 + Math.random() * 2.4, (Math.random() - 0.5) * 3));
+      s.userData.vel = v;
+      s.userData.life = 0.45 + Math.random() * 0.4;
+      s.userData.age = 0;
+      s.scale.setScalar(0.55 + Math.random() * 0.9);
+      this.scene.add(s);
+      this.blood.push(s);
+    }
+    // 上限保护：血滴太多先清最旧的
+    while (this.blood.length > 90) {
+      const old = this.blood.shift();
+      this.scene.remove(old); old.material.dispose();
+    }
+  }
+
   /** 命中飘字（世界坐标 -> 屏幕坐标） */
   addFloatingNumber(worldPos, text, kind = 'hit') {
     const el = document.createElement('div');
@@ -239,6 +271,20 @@ export class Effects {
       s.position.addScaledVector(s.userData.vel, dt);
       s.material.opacity = k;
       s.scale.setScalar(0.4 + k * 0.6);
+    }
+
+    // 血滴（暗红、非发光、受重力，落地或寿命到就消失）
+    for (let i = this.blood.length - 1; i >= 0; i--) {
+      const b = this.blood[i];
+      b.userData.age += dt;
+      const k = 1 - b.userData.age / b.userData.life;
+      if (k <= 0 || b.position.y < 0.03) {
+        this.scene.remove(b); b.material.dispose(); this.blood.splice(i, 1);
+        continue;
+      }
+      b.userData.vel.y -= 16 * dt;                 // 重力（比火花更沉）
+      b.position.addScaledVector(b.userData.vel, dt);
+      b.material.opacity = Math.min(0.95, k * 2);  // 大部分时间不透明，末尾快速淡出
     }
 
     // 爆炸
