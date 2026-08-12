@@ -4,6 +4,7 @@ import { playGrowl, playDeath } from './audio.js';
 import { 打击感, 丧尸种类 } from './config/gameplay.js';
 
 import { zombieParts } from './graphics/voxel/zombie.js';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
 const _navDir = new THREE.Vector3();   // 复用，避免每帧 new
 const _move = new THREE.Vector3();
@@ -236,12 +237,11 @@ export class Enemy {
     if (this.airborne) return this.updateAirborne(dt);
 
     if (this.dead) {
-      // 死亡散架：向后倒 + 下沉
+      // 死亡：向后仰倒贴地（不再缩小/消失；倒下后交给主循环转成永久尸体）
       this.deathTimer -= dt;
-      this.root.rotation.x = Math.min(Math.PI / 2, this.root.rotation.x + dt * 3);
-      this.root.position.y -= dt * 0.6;
-      this.root.scale.multiplyScalar(1 - dt * 0.8);
-      return this.deathTimer > 0;   // false = 可以从场景移除
+      this.root.rotation.x = Math.min(Math.PI / 2, this.root.rotation.x + dt * 4);
+      if (this.root.position.y > 0.05) this.root.position.y = Math.max(0.05, this.root.position.y - dt * 0.5);
+      return this.deathTimer > 0;   // false = 倒地完成，主循环把它烘焙成尸体
     }
 
     // 受击闪红
@@ -400,5 +400,31 @@ export class Enemy {
     this.root.traverse((o) => {
       if (o.isMesh) { o.geometry.dispose?.(); }
     });
+  }
+
+  /**
+   * 把身体各部件烘焙成一个"躺平的尸体"网格（合并=1 draw call），供主循环长期保留。
+   * 返回 { mesh, pos, radius }，主循环负责放进当前地图分组。返回后本 enemy 可 remove()。
+   */
+  bakeCorpse() {
+    const parts = [this.torso, this.head, this.legL, this.legR, this.armL, this.armR];
+    const geos = [];
+    for (const m of parts) {
+      m.updateMatrix();
+      const g = m.geometry.clone();
+      g.applyMatrix4(m.matrix);      // 把部件在 root 内的位姿烘进几何
+      geos.push(g);
+    }
+    const merged = mergeGeometries(geos, false);
+    geos.forEach((g) => g.dispose());
+    if (!merged) return null;
+    // 尸体材质：顶点色 × 暗灰，看起来发暗（死气）
+    const mat = new THREE.MeshStandardMaterial({ color: 0x8f9488, vertexColors: true, roughness: 0.95, metalness: 0 });
+    const mesh = new THREE.Mesh(merged, mat);
+    mesh.castShadow = true; mesh.receiveShadow = true;
+    mesh.position.set(this.root.position.x, 0.06, this.root.position.z);
+    mesh.rotation.y = this.root.rotation.y;
+    mesh.rotation.x = Math.PI / 2;   // 仰面躺倒
+    return { mesh, pos: mesh.position.clone(), radius: 0.7 * this.scaleFactor };
   }
 }

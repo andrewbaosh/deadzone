@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { PLAYER, 手感, 画面, 波次, 分数, 撤离, 敌人 as ECFG, 准星 } from './config.js';
 import { Level } from './level.js';
 import { Player } from './player.js';
@@ -95,6 +96,8 @@ const raycaster = new THREE.Raycaster();
 
 let enemies = [];
 let rockets = [];
+const corpses = [];                            // 永久尸体 { mesh, blood, root }
+const 尸体上限 = 40;                            // 尸体过多会掉帧，超过就清理最旧的
 let staticHitList = level.hitMeshes.slice();   // 环境可命中物
 let shakeAmount = 0;                            // 屏幕震动强度
 let hitstopTimer = 0;                           // 命中顿帧（微时停）
@@ -261,6 +264,7 @@ function startFreshGame() {
   // 清场
   for (const en of enemies) en.remove();
   enemies = [];
+  clearCorpses();
   for (const r of rockets) r.remove();
   rockets = [];
   pickups.clear();
@@ -757,6 +761,58 @@ function onKill(en, isHead) {
   pickups.dropFrom(en.root.position, en.type === '肉盾' || en.type === '爆炸');
 }
 
+/* ============ 永久尸体 + 地面血迹 ============ */
+const _bloodMat = new THREE.MeshBasicMaterial({ color: 0x5c0d0a, transparent: true, opacity: 0.62, depthWrite: false });
+function makeBloodDecal(pos, radius) {
+  // 一大两小、随机旋转/偏移的暗红血斑（合成一个几何 = 1 draw call）
+  const geos = [];
+  const blob = (cx, cz, r) => {
+    const g = new THREE.CircleGeometry(r, 10);
+    g.rotateX(-Math.PI / 2);
+    g.translate(cx, 0, cz);
+    geos.push(g);
+  };
+  const R = radius * (1.1 + Math.random() * 0.4);
+  blob(0, 0, R);
+  for (let k = 0; k < 2; k++) {
+    const a = Math.random() * Math.PI * 2, d = R * (0.6 + Math.random() * 0.5);
+    blob(Math.cos(a) * d, Math.sin(a) * d, R * (0.4 + Math.random() * 0.3));
+  }
+  const merged = mergeGeometries(geos, false);
+  geos.forEach((g) => g.dispose());
+  const m = new THREE.Mesh(merged, _bloodMat);
+  m.position.set(pos.x, 0.02 + Math.random() * 0.01, pos.z);   // 贴地、微抬避免 z-fighting
+  m.rotation.y = Math.random() * Math.PI * 2;
+  m.renderOrder = 1;
+  return m;
+}
+
+function addCorpse(en) {
+  const baked = en.bakeCorpse();
+  if (!baked) return;
+  const blood = makeBloodDecal(baked.pos, baked.radius);
+  const root = activeLevel.root;              // 挂在当前地图分组下：切图自动隐藏，不串图
+  root.add(baked.mesh);
+  root.add(blood);
+  corpses.push({ mesh: baked.mesh, blood, root });
+  // 超过上限：清理最旧的（连同血迹）
+  while (corpses.length > 尸体上限) {
+    const old = corpses.shift();
+    old.root.remove(old.mesh); old.root.remove(old.blood);
+    old.mesh.geometry.dispose(); old.mesh.material.dispose();
+    old.blood.geometry.dispose();
+  }
+}
+
+function clearCorpses() {
+  for (const c of corpses) {
+    c.root.remove(c.mesh); c.root.remove(c.blood);
+    c.mesh.geometry.dispose(); c.mesh.material.dispose();
+    c.blood.geometry.dispose();
+  }
+  corpses.length = 0;
+}
+
 /* ============ 命中标记 ============ */
 let hitmarkerTimer = 0;
 function showHitmarker(isHead) {
@@ -940,7 +996,7 @@ function frame() {
         if (pd < en.blastRange && player.alive) damagePlayer(en.blastDmg * (1 - pd / en.blastRange), time, p);
       }
       const res = en.update(simDt, player.pos, activeLevel, enemies, i);
-      if (res === false) { en.remove(); enemies.splice(i, 1); continue; }
+      if (res === false) { addCorpse(en); en.remove(); enemies.splice(i, 1); continue; }
       if (res && res.didAttack > 0) damagePlayer(res.didAttack, time, en.root.position);
       en.faceBar(camera);
     }
@@ -1158,6 +1214,7 @@ window.__game = {
   },
   get debrisActive() { return effects.debrisState ? effects.debrisState.filter((s) => s.active).length : 0; },
   get holeCount() { return effects.holes.length; },
+  get corpseCount() { return corpses.length; },
   get hitstop() { return hitstopTimer; },
   get eyeCount() { return eyeField.mesh.count; },
   get pickupCount() { return pickups.active.length; },
