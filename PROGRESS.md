@@ -287,3 +287,12 @@
 - **踩坑修复**：音频原来是绝对路径 `/sounds/xxx`，子路径部署会 404；改成相对路径 + `import.meta.env.BASE_URL` 前缀（`audio.js`），dev 和 Pages 都能取到。
 - **自测**：build 后 `dist/index.html` 资源路径带 `/deadzone/`、`dist/sounds/` 已拷贝；本地 dev 根路径 200、`/sounds/rifle.ogg` 200、`__game` 正常、0 报错。
 - **你要手动做一步**：仓库 Settings → Pages → Source 选 **GitHub Actions**（我改不了仓库设置）。之后每次推送自动更新，地址：**https://andrewbaosh.github.io/deadzone/**
+
+### 第六波 · 军营地图 + 会飞的喷气背包僵尸 ✅
+- **做了什么**：击败第五波「沙漠尖兵」后，撤入**军营地图（第三张关卡）**打一波**会飞的喷气背包僵尸**，清空即最终通关。
+  - **第三张地图 军营**（`level.js` theme='barracks'）：泥土/碎石地面、混凝土围墙、阴冷黄昏冷白光；体素道具（`voxelModels.js` 新增）：军用帐篷/军用补给箱/沙袋墙/瞭望塔/长条营房 + 油桶，复用同套碰撞点（gameplay 一致，只换皮）。氛围 `atmosphere.js` 新增 barracks 生态（铅灰天/冷绿）。
+  - **会飞的僵尸**（`enemy.js`）：新类型「飞行」，背喷气背包（两推进罐+背板+两束蓝色脉动火焰）；独立飞行 AI——无视地形/流场，3D 朝玩家飞、远处高空巡航、逼近时下压到胸口咬；空中死亡会抛射坠地再倒成尸体。只在第六波用 forcedType 刷。
+  - **流程**（`main.js`）：`switchMap()` 抽象出通用切图；`onRifleBossKilled` 改为切军营+开第六波；`startNextWave` 第六波刷 16 只飞尸；`updateWaves` 第六波清空→`onFinalWin`；重开局切回小镇。
+- **改了哪些文件**：`config/gameplay.js`(飞行类型+军营配置)、`enemy.js`(飞行 AI+喷气背包+坠地)、`graphics/voxel/voxelModels.js`(军营5种道具)、`level.js`(barracks 主题+灯光+街景)、`graphics/atmosphere.js`(barracks 生态)、`main.js`(第三关卡+switchMap+第六波流程+forceBarracks)。
+- **自测**：forceBarracks→biome=barracks/wave6/16只飞尸全在空中(y3.57)带喷气背包+火焰；完整链路 沙漠尖兵击杀→切军营→飞尸潮→清空最终通关→重开回小镇；小镇 selftest 仍 ok(draw114)；全程 0 报错。截图 `barracks.png`。
+- **给你早上的问题**：飞尸数量/飞行高度在 `gameplay.js` 的 `军营.数量` 和 `丧尸种类.飞行.飞行高度`；嫌军营空就往 `addBarracksShowcase` 里加道具。

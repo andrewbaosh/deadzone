@@ -8,6 +8,7 @@ import {
   makeTerrace, makeFountain, makeTree, makeTable,
   makeStall, makeCrates, makePlanter, makeBarrel, makeStonePlatform,
   makeRock, makeCactus, makeDeadShrub, makeDune, makeRuinPillar, makeBones,
+  makeSandbags, makeMilCrate, makeTent, makeBarracksHut, makeWatchtower,
 } from './graphics/voxel/voxelModels.js';
 import { 建筑风格 } from './graphics/voxel/styles.js';
 import { makeCobbleTextures } from './graphics/groundTexture.js';
@@ -74,13 +75,17 @@ export class Level {
     const S = this.size;
 
     const desert = this.theme === 'desert';
+    const barracks = this.theme === 'barracks';
+    const cobble = !desert && !barracks;   // 只有小镇用鹅卵石贴图
 
     // ---------- 地面 ----------
     const groundGeo = new THREE.PlaneGeometry(S * 2, S * 2, 1, 1);
     const groundMat = desert
       ? new THREE.MeshStandardMaterial({ color: 0xcaa96f, roughness: 1.0, metalness: 0 })
-      : new THREE.MeshStandardMaterial({ color: 0xb8a888, roughness: 0.95, metalness: 0 });
-    if (!desert && GFX.体素细节 !== false) {
+      : barracks
+        ? new THREE.MeshStandardMaterial({ color: 0x6d6c5c, roughness: 1.0, metalness: 0 })   // 泥土/碎石
+        : new THREE.MeshStandardMaterial({ color: 0xb8a888, roughness: 0.95, metalness: 0 });
+    if (cobble && GFX.体素细节 !== false) {
       try {
         const { map, normalMap } = makeCobbleTextures(512, 11);
         const rep = S * 2 / 4.5;              // 每 ~4.5m 一块贴图
@@ -98,18 +103,19 @@ export class Level {
     this.hitMeshes.push(ground);
     this.ground = ground;   // 网格线已去掉（和石板风格冲突）
 
-    // ---------- 外墙（沙漠=砂岩峡谷壁；小镇=深色围墙）----------
+    // ---------- 外墙（沙漠=砂岩壁；军营=混凝土围墙；小镇=深色围墙）----------
     const wallH = 7;
-    const wallColor = desert ? 0x9a7a4c : 0x353b44;
-    this.addBox(0, 0, -S, S * 2, wallH, 1.2, wallColor, { roughness: desert ? 1.0 : 0.85 });
-    this.addBox(0, 0, S, S * 2, wallH, 1.2, wallColor, { roughness: desert ? 1.0 : 0.85 });
-    this.addBox(-S, 0, 0, 1.2, wallH, S * 2, wallColor, { roughness: desert ? 1.0 : 0.85 });
-    this.addBox(S, 0, 0, 1.2, wallH, S * 2, wallColor, { roughness: desert ? 1.0 : 0.85 });
+    const wallRough = cobble ? 0.85 : 1.0;
+    const wallColor = desert ? 0x9a7a4c : barracks ? 0x585a4c : 0x353b44;
+    this.addBox(0, 0, -S, S * 2, wallH, 1.2, wallColor, { roughness: wallRough });
+    this.addBox(0, 0, S, S * 2, wallH, 1.2, wallColor, { roughness: wallRough });
+    this.addBox(-S, 0, 0, 1.2, wallH, S * 2, wallColor, { roughness: wallRough });
+    this.addBox(S, 0, 0, 1.2, wallH, S * 2, wallColor, { roughness: wallRough });
 
     // ---------- 中央高台（可登高）：碰撞在此，视觉在 showcase ----------
     this.addCollider(0, 0, 0, 12, 3.2, 12);
     // 东侧台阶：4 级，每级 0.8 米，走上去就能上台
-    const stairColor = desert ? 0xbf9a5e : 0xa89a7c;
+    const stairColor = desert ? 0xbf9a5e : barracks ? 0x8a8a76 : 0xa89a7c;
     for (let i = 0; i < 4; i++) {
       this.addBox(9.6 - i * 1.4, 0, 0, 1.4, 0.8 * (i + 1), 4.4, stairColor, { roughness: desert ? 1.0 : 0.9 });
     }
@@ -154,10 +160,15 @@ export class Level {
     this.flow = new FlowField(this.colliders, this.size, 1.6);
   }
 
-  /** 氛围：小镇=暖窗+街灯+南法街景；沙漠=沙丘/仙人掌/巨石/废柱 */
+  /** 氛围：小镇=暖窗+街灯+南法街景；沙漠=沙丘/仙人掌；军营=营房/帐篷/沙袋/瞭望塔 */
   buildAmbiance() {
     if (this.theme === 'desert') {
       if (GFX.体素细节 !== false) this.addDesertShowcase();
+      return;
+    }
+    if (this.theme === 'barracks') {
+      if (GFX.街灯 !== false) this.addLamps();   // 探照/营地灯复用街灯池
+      if (GFX.体素细节 !== false) this.addBarracksShowcase();
       return;
     }
     if (GFX.暖窗 !== false) this.addWindows();
@@ -338,6 +349,7 @@ export class Level {
 
   buildLights() {
     if (this.theme === 'desert') return this.buildDesertLights();
+    if (this.theme === 'barracks') return this.buildBarracksLights();
     // 半球光：上冷天光 / 下暖地面反弹（可读的黄昏，不再纯黑）
     this.scene.add(new THREE.HemisphereLight(0x9aa8d0, 0x7a5e40, 1.6));
     // 环境光补暗部（暖一点）
@@ -423,6 +435,58 @@ export class Level {
     pillars.forEach(([x, z], i) => this.placeVoxel(makeRuinPillar(i + 1), vs, x, z, 0, { batch: 'ruins', collide: true }));
     const bones = [[-8, -30], [18, 30], [-30, 8], [28, -14]];
     bones.forEach(([x, z], i) => this.placeVoxel(makeBones(i + 1), vs, x, z, (i % 4) * Math.PI / 2, { batch: 'bones' }));
+
+    this.flushBatches();
+    this.voxelStats = { tris: this._voxTris };
+  }
+
+  /** 军营·阴冷黄昏：偏冷的天光 + 低角度冷白探照方向光 + 硬阴影 */
+  buildBarracksLights() {
+    this.scene.add(new THREE.HemisphereLight(0x8f9aa8, 0x565039, 1.5));
+    this.scene.add(new THREE.AmbientLight(0x6a6e72, 0.45));
+    const sun = new THREE.DirectionalLight(0xd6dae0, 1.9);   // 冷白
+    sun.position.set(-30, 52, 24);
+    sun.target.position.set(0, 0, 0);
+    this.scene.add(sun.target);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(this.shadowMapSize, this.shadowMapSize);
+    const d = 42;
+    sun.shadow.camera.left = -d; sun.shadow.camera.right = d;
+    sun.shadow.camera.top = d; sun.shadow.camera.bottom = -d;
+    sun.shadow.camera.near = 1; sun.shadow.camera.far = 150;
+    sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.03;
+    this.scene.add(sun);
+    this.sun = sun;
+  }
+
+  /** 军营街景：中央混凝土台 + 帐篷/军箱/沙袋/油桶掩体（复用同套碰撞点）+ 围边营房 + 瞭望塔 */
+  addBarracksShowcase() {
+    const vs = 0.16;
+    const concrete = { stone: 0x8a8c82, stone2: 0x767869, cap: 0x9a9c90, dark: 0x565749 };
+
+    // 中央混凝土高台（视觉；碰撞已在 build 登记）
+    this.placeVoxel(makeStonePlatform(76, 22, concrete), vs, 0, 0, 0, { batch: 'props', rough: 1.0 });
+
+    // 高掩体（原摊位点）→ 军用帐篷
+    this.stallSpots.forEach(([x, z, rot], i) => this.placeVoxel(makeTent(i + 1), vs, x, z, rot, { batch: 'tents' }));
+    // 中掩体（原箱堆点）→ 军用补给箱
+    this.crateSpots.forEach(([x, z], i) => this.placeVoxel(makeMilCrate(i + 1), vs, x, z, (i % 4) * Math.PI / 2, { batch: 'milcrates' }));
+    // 矮掩体（原花坛点）→ 沙袋墙
+    this.planterSpots.forEach(([x, z], i) => this.placeVoxel(makeSandbags(i + 1), vs, x, z, (i % 2) * Math.PI / 2, { batch: 'sandbags' }));
+    // 小掩体（原酒桶点）→ 油桶
+    this.barrelSpots.forEach(([x, z]) => this.placeVoxel(makeBarrel(), vs, x, z, 0, { batch: 'drums' }));
+
+    // 围边营房（四面贴墙，立面朝内）
+    const S = this.size, inner = S - 6;
+    const huts = [
+      [0, -inner, 0], [0, inner, Math.PI], [-inner, 0, Math.PI / 2], [inner, 0, -Math.PI / 2],
+      [-24, -inner, 0], [24, -inner, 0], [-24, inner, Math.PI], [24, inner, Math.PI],
+    ];
+    huts.forEach(([x, z, rot], i) => this.placeVoxel(makeBarracksHut(i + 1, { w: 44, h: 22, d: 18 }), vs, x, z, rot, { batch: 'huts', collide: true }));
+
+    // 地标：四角瞭望塔
+    const towers = [[-34, -34], [34, -34], [-34, 34], [34, 34]];
+    towers.forEach(([x, z], i) => this.placeVoxel(makeWatchtower(i + 1), vs, x, z, 0, { batch: 'towers', collide: true }));
 
     this.flushBatches();
     this.voxelStats = { tris: this._voxTris };

@@ -26,7 +26,7 @@ import { Pickups } from './pickups.js';
 import { Minimap } from './minimap.js';
 import { Boss } from './boss.js';
 import { RifleBoss } from './rifleBoss.js';
-import { BOSS, 沙漠, 步枪Boss } from './config/gameplay.js';
+import { BOSS, 沙漠, 步枪Boss, 军营 } from './config/gameplay.js';
 
 /* ============ 渲染基础 ============ */
 const canvas = document.getElementById('game');
@@ -66,6 +66,9 @@ const level = new Level(scene, { shadowMapSize: quality.params.shadowMapSize });
 // 第二张地图：沙漠（第四波用）。同场共存，先隐藏，切图时整组显隐
 const desert = new Level(scene, { theme: 'desert', shadowMapSize: quality.params.shadowMapSize });
 desert.setActive(false);
+// 第三张地图：军营（第六波用）
+const barracks = new Level(scene, { theme: 'barracks', shadowMapSize: quality.params.shadowMapSize });
+barracks.setActive(false);
 let activeLevel = level;   // 当前生效的关卡（碰撞/流场/出生点/小地图都跟它走）
 
 // 阶段4：动态光（玩家头灯 + 枪口/爆炸临时光对象池）+ 丧尸红眼实例场
@@ -77,7 +80,7 @@ const eyeField = new EyeField(scene, 64);
 // 画质档变化时：调雾密度 + 阴影分辨率 + 后处理 + 头灯投影
 onQualityChange = (p) => {
   setFogDensity(scene, p.fogDensity);
-  for (const lv of [level, desert]) {
+  for (const lv of [level, desert, barracks]) {
     if (lv.sun) {
       lv.sun.shadow.mapSize.set(p.shadowMapSize, p.shadowMapSize);
       if (lv.sun.shadow.map) { lv.sun.shadow.map.dispose(); lv.sun.shadow.map = null; }
@@ -274,15 +277,9 @@ function startFreshGame() {
   hud.pickupToast.style.opacity = '0';
   shakeAmount = 0;
   score = 0; wave = 0; kills = 0;
-  // 回到小镇地图（上一局可能停在沙漠）
+  // 回到小镇地图（上一局可能停在沙漠/军营）
   if (activeLevel !== level) {
-    desert.setActive(false);
-    level.setActive(true);
-    activeLevel = level;
-    player.level = level;
-    staticHitList = level.hitMeshes.slice();
-    minimap.setLevel(level);
-    applyBiome(renderer, scene, 'town', quality.params);
+    switchMap(level, 'town');
   }
   player.respawn();
   for (const k of weapons.slots) {
@@ -325,12 +322,20 @@ function startNextWave() {
   if (wave === 步枪Boss.出现波数) { spawnRifleBoss(); return; }
   waveActive = true;
   killsThisWave = 0;
-  // 第 4 波 = 沙漠决战：固定一大波，清空即最终通关
+  // 第 4 波 = 沙漠决战：固定一大波
   if (wave === 沙漠.波数) {
     toSpawn = 沙漠.数量;
     spawnTimer = 0;
     playWaveStart();
-    flashWaveBanner('☀ 沙漠尸潮 · 最后一波！');
+    flashWaveBanner('☀ 沙漠尸潮 · 来袭！');
+    return;
+  }
+  // 第 6 波 = 军营：会飞的喷气背包僵尸，清空即最终通关
+  if (wave === 军营.波数) {
+    toSpawn = 军营.数量;
+    spawnTimer = 0;
+    playWaveStart();
+    flashWaveBanner('🚀 军营 · 飞行尸潮！最后一战');
     return;
   }
   let count = Math.round(波次.第一波数量 + (wave - 1) * 波次.每波增加);
@@ -362,7 +367,8 @@ function spawnOne() {
     if (d > bestD) { bestD = d; best = p; }
   }
   const exclude = (wave === 沙漠.波数) ? 沙漠.排除类型 : null;
-  const en = new Enemy(scene, best.clone(), wave, null, exclude);
+  const forced = (wave === 军营.波数) ? '飞行' : null;   // 军营波全是会飞的僵尸
+  const en = new Enemy(scene, best.clone(), wave, forced, exclude);
   enemies.push(en);
 }
 
@@ -403,6 +409,8 @@ function updateWaves(dt) {
   // 本波清完
   if (toSpawn <= 0 && aliveCount() === 0) {
     waveActive = false;
+    // 第六波（军营飞尸潮）清空 = 最终通关
+    if (wave >= 军营.波数) { onFinalWin(); return; }
     score += 分数.过波奖励;
     restTimer = 波次.波间休息;
     // 沙漠尸潮清空 → 提示准备迎接持枪 Boss
@@ -547,28 +555,29 @@ function onBossKilled() {
   startNextWave();   // wave 3 → 4：沙漠尸潮
 }
 
-/** 切换到沙漠地图：整组显隐 + 玩家/碰撞/流场/小地图/氛围全部改到沙漠 */
-function transitionToDesert() {
-  level.setActive(false);
-  desert.setActive(true);
-  activeLevel = desert;
-  player.level = desert;
-  const sp = desert.playerSpawn();
-  player.pos.copy(sp);
+/** 切换地图：整组显隐 + 玩家/碰撞/流场/小地图/氛围全部改到目标关卡 */
+function switchMap(target, biome) {
+  for (const lv of [level, desert, barracks]) lv.setActive(lv === target);
+  activeLevel = target;
+  player.level = target;
+  player.pos.copy(target.playerSpawn());
   player.vel.x = player.vel.y = player.vel.z = 0;
   player.onGround = true;
-  staticHitList = desert.hitMeshes.slice();
-  minimap.setLevel(desert);
-  applyBiome(renderer, scene, 'desert', quality.params);
+  staticHitList = target.hitMeshes.slice();
+  minimap.setLevel(target);
+  applyBiome(renderer, scene, biome, quality.params);
   setCenterMsg('', false);   // 清掉可能残留的"下一波"提示
 }
+function transitionToDesert() { switchMap(desert, 'desert'); }
+function transitionToBarracks() { switchMap(barracks, 'barracks'); }
 
-// 击败第五波「沙漠尖兵」= 最终通关
+// 击败第五波「沙漠尖兵」→ 撤入军营打第六波会飞的僵尸
 function onRifleBossKilled() {
   bossActive = false;
   if (boss) { boss.remove(); boss = null; }
   hud.bossHud.style.display = 'none';
-  onFinalWin();
+  transitionToBarracks();
+  startNextWave();   // wave 5 → 6：军营飞尸潮
 }
 
 // 最终通关
@@ -578,8 +587,8 @@ function onFinalWin() {
   stopMusic(); stopAmbient();
   document.exitPointerLock();
   setCenterMsg(
-    `<div class="big win">☀ 你打穿了整片沙漠！</div>
-     <div class="sub">通关！巨兽 + 沙漠尸潮 + 沙漠尖兵 全清 · 击杀 ${kills} · 得分 ${score}</div>
+    `<div class="big win">🎖 你打穿了整条战线！</div>
+     <div class="sub">通关！巨兽·沙漠尖兵·飞行尸潮全清 · 击杀 ${kills} · 得分 ${score}</div>
      <div class="restart-btn" id="restart-btn">点击再来一局</div>`
   );
   setTimeout(() => {
@@ -1192,6 +1201,8 @@ window.__game = {
   forceDesert() { wave = BOSS.出现波数; if (boss) { boss.remove(); boss = null; } bossActive = false; onBossKilled(); return { biome: scene._biome, activeIsDesert: activeLevel === desert, toSpawn, spawns: activeLevel.spawnPoints.length }; },
   // 测试：直接在沙漠召唤第五波持枪 Boss
   forceRifleBoss() { if (activeLevel !== desert) transitionToDesert(); wave = 步枪Boss.出现波数; if (boss) { boss.remove(); boss = null; } spawnRifleBoss(); return { kind: boss.kind, hp: boss.hp, maxHp: boss.maxHp, name: hud.bossName.textContent }; },
+  // 测试：直接撤入军营打第六波会飞的僵尸
+  forceBarracks() { if (boss) { boss.remove(); boss = null; } bossActive = false; wave = 步枪Boss.出现波数; transitionToBarracks(); startNextWave(); return { biome: scene._biome, wave, toSpawn, spawns: activeLevel.spawnPoints.length }; },
   get biome() { return scene._biome; },
   // 测试：把玩家瞬移到撤离点内并推进停留判定
   tickExtraction(dt) { updateExtractionPhase(dt); return { holdProgress, state, extractionActive }; },

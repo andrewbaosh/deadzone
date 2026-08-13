@@ -391,3 +391,119 @@ export function makeBones(seed = 1) {
     },
   };
 }
+
+/* ================= 军营地图道具（第六波） ================= */
+
+/** 沙袋墙（矮掩体，蹲下可躲；错落堆叠的袋子 + 缝线） */
+export function makeSandbags(seed = 1) {
+  const w = 16, h = 7, d = 10;
+  const tan = 0x9a8a5a, tan2 = 0x877748, dark = 0x655734;
+  return {
+    sx: w, sy: h, sz: d,
+    get(x, y, z) {
+      if (y >= 6 || z < 2 || z >= d - 2 || x < 1 || x >= w - 1) return -1;
+      const row = Math.floor(y / 2);
+      if ((x < 3 || x >= w - 3) && y >= 4) return -1;        // 两端降低
+      const off = (row % 2) * 1.5;
+      const seam = ((x + Math.floor(off)) % 3 === 0);
+      if (seam) return dark;
+      const bag = Math.floor((x + off) / 3);
+      return ((bag + row) & 1) ? tan : tan2;
+    },
+  };
+}
+
+/** 军用箱（绿色补给箱，带标记条；中掩体） */
+export function makeMilCrate(seed = 1) {
+  const w = 18, h = 15, d = 14;
+  const A = 0x59613a, B = 0x4b5230, edge = 0x33381f, mark = 0xc2b24e;
+  const box = (x, y, z, bx, by, bz, bw, bh, bd) => x >= bx && x < bx + bw && y >= by && y < by + bh && z >= bz && z < bz + bd;
+  const skin = (x, y, z, bx, by, bz, bw, bh, bd) => {
+    const lx = x - bx, ly = y - by, lz = z - bz;
+    if (lx < 1 || ly < 1 || lz < 1 || lx >= bw - 1 || ly >= bh - 1 || lz >= bd - 1) return edge;
+    if (ly === Math.floor(bh / 2) && lz >= bd - 2) return mark;   // 正面标记条
+    return (Math.floor(ly / 3) & 1) ? A : B;
+  };
+  return {
+    sx: w, sy: h, sz: d,
+    get(x, y, z) {
+      if (box(x, y, z, 0, 0, 0, 11, 9, 10)) return skin(x, y, z, 0, 0, 0, 11, 9, 10);
+      if (box(x, y, z, 9, 0, 2, 9, 8, 9)) return skin(x, y, z, 9, 0, 2, 9, 8, 9);
+      const ox = seed % 2 ? 3 : 6;
+      if (box(x, y, z, ox, 9, 1, 9, 6, 9)) return skin(x, y, z, ox, 9, 1, 9, 6, 9);
+      return -1;
+    },
+  };
+}
+
+/** 军用帐篷（A 字脊帐，橄榄帆布 + 立柱；高掩体） */
+export function makeTent(seed = 1) {
+  const w = 40, h = 22, d = 26, cx = w / 2;
+  const canvas = 0x4c5a34, canvas2 = 0x414d2c, pole = 0x2a2a24, dark = 0x30371f;
+  const roofTop = h - 1;
+  return {
+    sx: w, sy: h, sz: d,
+    get(x, y, z) {
+      const span = (roofTop - y) * 0.95;   // 越高越窄的 A 字坡
+      if (y >= 5) {
+        if (Math.abs(x - cx) <= span && z >= 1 && z < d - 1) {
+          const outer = Math.abs(x - cx) >= span - 1.6;       // 两侧斜面
+          const ends = z <= 1 || z >= d - 2;                  // 前后帆布
+          if (outer || ends) return ((x + z) & 1) ? canvas : canvas2;
+          if (Math.abs(x - cx) <= 1 && y >= roofTop - 1) return dark;  // 脊
+          return -1;
+        }
+      }
+      if (y < 5) {
+        if ((x < 2 || x >= w - 2) && (z < 2 || z >= d - 2)) return pole;   // 四角柱
+        if (z >= d - 2 && Math.abs(x - cx) <= (roofTop - 5) * 0.95) return dark;   // 后墙
+      }
+      return -1;
+    },
+  };
+}
+
+/** 长条营房（外壳 + 门窗 + 檐口坡顶；围边建筑） */
+export function makeBarracksHut(seed = 1, opts = {}) {
+  const w = opts.w ?? 44, h = opts.h ?? 22, d = opts.d ?? 18;
+  const wall = 0x6b7052, wall2 = 0x5c614a, roof = 0x40453a, roof2 = 0x353a2d, door = 0x2f2a22, win = 0x9fc0cf, trim = 0x50543c;
+  const bodyTop = h - 5;
+  return {
+    sx: w, sy: h, sz: d,
+    get(x, y, z) {
+      if (y >= bodyTop) { const r = y - bodyTop; if (x < r || x >= w - r || z < r || z >= d - r) return -1; return ((x + z) & 1) ? roof : roof2; }
+      const shell = x < 2 || x >= w - 2 || z < 2 || z >= d - 2;
+      if (!shell) return -1;
+      if (y === bodyTop - 1) return trim;                   // 檐口
+      if (z >= d - 2) {                                     // 正面：门 + 窗带
+        for (const f of [0.16, 0.5, 0.84]) { const dc = Math.round(w * f); if (x >= dc - 2 && x <= dc + 1 && y < 8) return door; }
+        if (y >= 9 && y <= 13 && (x % 7 < 4) && x > 3 && x < w - 4) return win;
+      }
+      return ((x + y) % 7 === 0) ? wall2 : wall;
+    },
+  };
+}
+
+/** 瞭望塔（四腿内收 + 平台栏杆 + 坡顶；地标/高掩体） */
+export function makeWatchtower(seed = 1) {
+  const w = 14, h = 46, d = 14, leg = 0x49452f, wood = 0x6a5a38, wood2 = 0x5a4c2f, roof = 0x3a3f2c, rail = 0x554a30;
+  const cabinY = h - 16;
+  return {
+    sx: w, sy: h, sz: d,
+    get(x, y, z) {
+      if (y < cabinY) {
+        const inset = Math.floor((y / cabinY) * 3);
+        for (const [lx, lz] of [[1 + inset, 1 + inset], [w - 2 - inset, 1 + inset], [1 + inset, d - 2 - inset], [w - 2 - inset, d - 2 - inset]]) {
+          if (Math.abs(x - lx) <= 1 && Math.abs(z - lz) <= 1) return leg;
+        }
+        if (y % 9 < 1 && (x === (w >> 1) || z === (d >> 1))) return leg;   // 横撑
+        return -1;
+      }
+      if (y < cabinY + 2) { if (x >= 1 && x < w - 1 && z >= 1 && z < d - 1) return ((x + z) & 1) ? wood : wood2; }   // 平台
+      if (y >= cabinY + 2 && y < cabinY + 7) { const rim = x < 2 || x >= w - 2 || z < 2 || z >= d - 2; if (rim) return (x % 3 < 1 || z % 3 < 1) ? rail : -1; }  // 栏杆
+      if (y >= cabinY + 7 && y < cabinY + 11 && (x < 2 || x >= w - 2) && (z < 2 || z >= d - 2)) return wood;   // 顶柱
+      if (y >= cabinY + 11) { const r = y - (cabinY + 11); if (x < r || x >= w - r || z < r || z >= d - r) return -1; return roof; }   // 坡顶
+      return -1;
+    },
+  };
+}

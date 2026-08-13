@@ -51,6 +51,10 @@ export class Enemy {
     this.blastRange = cfg.自爆范围 || 0;
     this.blastDmg = cfg.自爆伤害 || 0;
 
+    // 喷气背包·会飞
+    this.flying = !!cfg.会飞;
+    this.flyHeight = cfg.飞行高度 || 3.6;
+
     this.attackTimer = 0;
     this.growlTimer = Math.random() * 4;
     this.hurtFlash = 0;
@@ -63,8 +67,9 @@ export class Enemy {
     this.side = Math.random() < 0.5 ? 1 : -1;   // 绕障碍时的偏侧，破对称防卡死
 
     this.buildMesh(T);
+    if (this.flying) this.buildJetpack();
     this.root.position.copy(spawnPos);
-    this.root.position.y = 0;
+    this.root.position.y = this.flying ? this.flyHeight : 0;   // 会飞的直接在空中出生
     scene.add(this.root);
 
     // 受击盒（相对 root 的局部范围），用于射线命中
@@ -130,6 +135,97 @@ export class Enemy {
     this.phase = Math.random() * Math.PI * 2;   // 走路摆动相位
   }
 
+  /** 背上的喷气背包（两个推进罐 + 背板 + 两束蓝色火焰） */
+  buildJetpack() {
+    const s = this.scaleFactor;
+    const metal = new THREE.MeshStandardMaterial({ color: 0x2f343b, roughness: 0.55, metalness: 0.6 });
+    const grp = new THREE.Group();
+    for (const sx of [-0.13, 0.13]) {
+      const tank = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 0.36, 8), metal);
+      tank.position.set(sx * s, 1.05 * s, -0.22 * s);
+      grp.add(tank);
+      const noz = new THREE.Mesh(new THREE.ConeGeometry(0.06, 0.1, 8), metal);
+      noz.position.set(sx * s, 0.84 * s, -0.22 * s); noz.rotation.x = Math.PI;
+      grp.add(noz);
+    }
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(0.34 * s, 0.4 * s, 0.08 * s), metal);
+    plate.position.set(0, 1.02 * s, -0.28 * s);
+    grp.add(plate);
+    // 火焰（additive 发光，运行时脉动）
+    const flameMat = new THREE.MeshBasicMaterial({ color: 0x66b0ff, transparent: true, opacity: 0.9, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
+    this.jetFlames = [];
+    for (const sx of [-0.13, 0.13]) {
+      const f = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.5, 7), flameMat.clone());
+      f.position.set(sx * s, 0.6 * s, -0.22 * s); f.rotation.x = Math.PI;   // 尖朝下
+      grp.add(f);
+      this.jetFlames.push(f);
+    }
+    this.root.add(grp);
+    this.jetpack = grp;
+  }
+
+  /** 飞行 AI：无视地形，3D 朝玩家飞，逼近时下压去咬；喷气火焰脉动 */
+  updateFlying(dt, playerPos, allEnemies, idx) {
+    const pos = this.root.position;
+    const to = _move.set(playerPos.x - pos.x, 0, playerPos.z - pos.z);
+    const distXZ = to.length() || 1;
+    to.divideScalar(distXZ);
+    this.root.rotation.y = Math.atan2(to.x, to.z);
+
+    // 悬停高度：远处高空巡航，逼近时压到玩家胸口
+    const hoverH = distXZ > 4 ? this.flyHeight : 1.2;
+    const wantY = hoverH + Math.sin(performance.now() * 0.004 + this.phase) * 0.25;
+
+    // 分离（只在 XZ，避免飞尸叠一起）
+    let px = 0, pz = 0;
+    for (let j = 0; j < allEnemies.length; j++) {
+      if (j === idx) continue;
+      const o = allEnemies[j];
+      if (o.dead || !o.flying) continue;
+      const dx = pos.x - o.root.position.x, dz = pos.z - o.root.position.z;
+      const d = Math.hypot(dx, dz);
+      const minD = (this.scaleFactor + o.scaleFactor) * 0.6;
+      if (d < minD && d > 0.001) { px += (dx / d) * (minD - d); pz += (dz / d) * (minD - d); }
+    }
+
+    const stop = distXZ <= CFG.攻击距离 + 0.4;
+    const fwd = stop ? 0 : this.speed;
+    pos.x += (to.x * fwd + px * 3) * dt;
+    pos.z += (to.z * fwd + pz * 3) * dt;
+    pos.y += (wantY - pos.y) * Math.min(1, dt * 3);
+    pos.x = Math.max(-44, Math.min(44, pos.x));
+    pos.z = Math.max(-44, Math.min(44, pos.z));
+
+    // 喷气火焰脉动
+    if (this.jetFlames) for (const f of this.jetFlames) { f.scale.set(1, 0.7 + Math.random() * 0.7, 1); f.material.opacity = 0.6 + Math.random() * 0.4; }
+
+    // 攻击（3D 距离近就咬）
+    this.attackTimer -= dt;
+    let didAttack = 0;
+    const d3 = Math.hypot(playerPos.x - pos.x, playerPos.y - pos.y, playerPos.z - pos.z);
+    if (d3 <= CFG.攻击距离 + 0.7 && this.attackTimer <= 0) {
+      this.attackTimer = CFG.攻击间隔;
+      didAttack = this.damage;
+      this.armL.rotation.x = -2.4; this.armR.rotation.x = -2.4;
+    }
+    this.armL.rotation.x += (-1.6 - this.armL.rotation.x) * Math.min(1, dt * 6);
+    this.armR.rotation.x += (-1.6 - this.armR.rotation.x) * Math.min(1, dt * 6);
+    this.phase += dt * 6;
+    this.legL.rotation.x = 0.3 + Math.sin(this.phase) * 0.12;   // 腿垂着晃
+    this.legR.rotation.x = 0.3 - Math.sin(this.phase) * 0.12;
+
+    if (this.hpBar.visible) {
+      const ratio = Math.max(0, this.hp / this.maxHp);
+      this.hpBar.scale.x = ratio;
+      this.hpBar.position.x = -(1 - ratio) * 0.34 * this.scaleFactor;
+      this.hpBar.material.color.setRGB(1 - ratio, ratio, 0.15);
+    }
+    this.growlTimer -= dt;
+    if (this.growlTimer <= 0) { this.growlTimer = 3 + Math.random() * 5; playGrowl(distXZ); }
+
+    return { didAttack };
+  }
+
   /** 受到伤害。返回是否致死。 */
   takeDamage(dmg, fromDir, effects, worldHitPoint) {
     if (this.dead) return false;
@@ -154,6 +250,13 @@ export class Enemy {
     this.deathTimer = 0.6;
     this.hpBar.visible = false;
     this.hpBarBg.visible = false;
+    if (this.jetFlames) for (const f of this.jetFlames) f.visible = false;   // 熄火
+    // 空中死亡：抛射下坠，落地后再倒地成尸（updateAirborne 接管）
+    if (this.flying && this.root.position.y > 0.3) {
+      this.airborne = true;
+      this.vel.set((Math.random() - 0.5) * 2, 1.4, (Math.random() - 0.5) * 2);
+      this.spin.set((Math.random() - 0.5) * 5, (Math.random() - 0.5) * 5, (Math.random() - 0.5) * 5);
+    }
     // 死亡碎裂碎片（用身体颜色）
     if (effects && 打击感.死亡碎裂粒子) {
       effects.addDebris(this.root.position, this.bodyMat.color.getHex(), Math.round(11 * this.scaleFactor));
@@ -253,6 +356,9 @@ export class Enemy {
       this.bodyMat.emissive.setRGB(f, g, g * 0.9);
       this.headMat.emissive.setRGB(f, g, g * 0.9);
     }
+
+    // 会飞的走独立飞行 AI（无视地形/流场/台阶）
+    if (this.flying) return this.updateFlying(dt, playerPos, allEnemies, idx);
 
     const pos = this.root.position;
     const toPlayer = new THREE.Vector3().subVectors(playerPos, pos);
