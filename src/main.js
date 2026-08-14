@@ -226,13 +226,14 @@ document.addEventListener('keydown', (e) => {
   if (e.code === 'Digit5') weapons.switchTo('狙击枪');
   if (e.code === 'Digit6') weapons.switchTo('加特林');
   if (e.code === 'Digit7') weapons.switchTo('砍刀');
+  if (e.code === 'Digit8') weapons.switchTo('追踪导弹');
   if (e.code === 'KeyQ') weapons.quickSwitch();                   // CS：Q 快速切回上一把
   if (e.code === 'KeyF') aimToggle = !aimToggle;                  // 开/关瞄准镜（狙击开镜）
   if (e.code === 'KeyE') { const i = (weapons.slots.indexOf(weapons.current) + 1) % weapons.slots.length; weapons.switchByIndex(i); } // 循环换枪（备用）
   if (e.code === 'KeyM') { const on = toggleMusic(); flashWaveBanner(on ? '♪ 音乐开' : '♪ 音乐关'); }
   if (e.code === 'F7') { quality.cycleTier(); flashWaveBanner('画质 ' + quality.tierName); }
   if (e.code === 'F8') { statsPanel.toggle(); }
-  if (['KeyW','KeyA','KeyS','KeyD','Space','KeyR','KeyQ','KeyE','KeyF','KeyM','Digit1','Digit2','Digit3','Digit4','Digit5','Digit6','Digit7'].includes(e.code)) e.preventDefault();
+  if (['KeyW','KeyA','KeyS','KeyD','Space','KeyR','KeyQ','KeyE','KeyF','KeyM','Digit1','Digit2','Digit3','Digit4','Digit5','Digit6','Digit7','Digit8'].includes(e.code)) e.preventDefault();
 });
 document.addEventListener('keyup', (e) => player.onKey(e.code, false));
 
@@ -642,12 +643,13 @@ function updateWaypoint() {
 function addShake(a) { shakeAmount = Math.min(0.9, shakeAmount + a); }
 
 function spawnRocket(shot) {
-  const r = new Rocket(scene, shot.origin, shot.dir, 武器Config('火箭筒'), staticHitList);
+  // 用当前武器的配置（火箭筒 / 追踪导弹各自的弹速/追踪/爆炸）；异常时回退火箭筒
+  const cfg = (weapons.cfg && weapons.cfg.是火箭) ? weapons.cfg : 武器Config('火箭筒');
+  const r = new Rocket(scene, shot.origin, shot.dir, cfg, staticHitList);
   rockets.push(r);
 }
 
-function explode(center, direct, time) {
-  const cfg = 武器Config('火箭筒');
+function explode(center, direct, time, cfg = 武器Config('火箭筒')) {
   effects.addExplosion(center, cfg.爆炸半径);
   playExplosion();
   if (音效氛围.开火压低环境) duckEnv(0.7, 0.4);
@@ -992,7 +994,7 @@ function frame() {
       const r = rockets[i];
       const res = r.update(simDt, enemies);
       if (res && res.explode) {
-        explode(res.point, res.direct, time);
+        explode(res.point, res.direct, time, r.cfg);
         r.remove();
         rockets.splice(i, 1);
       }
@@ -1316,7 +1318,7 @@ window.__game = {
   tickRockets(dt) {
     for (let i = rockets.length - 1; i >= 0; i--) {
       const res = rockets[i].update(dt, enemies);
-      if (res && res.explode) { explode(res.point, res.direct, 0); rockets[i].remove(); rockets.splice(i, 1); }
+      if (res && res.explode) { explode(res.point, res.direct, 0, rockets[i].cfg); rockets[i].remove(); rockets.splice(i, 1); }
     }
     return rockets.length;
   },

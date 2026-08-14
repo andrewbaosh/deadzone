@@ -211,12 +211,38 @@ const BUILDERS = {
     if (z >= 42 && z <= 43 && y >= 4 && y <= 10 && x <= 3) return [GD, 'body'];
     return null;
   },
+
+  // ============ 追踪导弹 HOMING ============ sx7 sy18 sz70（方形制导发射器）
+  追踪导弹(x, y, z) {
+    const cy = 9;
+    const TUBE = 0x37485a, TUBE2 = 0x2a3746, RINGC = 0x1b232c, DARK = 0x12161b, OPT = 0x14181e, LENS = 0x8fd8ee, WARN = 0xc23a2a, TIP = 0xd6d6c8, GRIP = 0x20242a;
+    // 方形发射管外壳 z3..52
+    if (z >= 3 && z <= 52 && x >= 0 && x <= 6 && y >= cy - 3 && y <= cy + 3) {
+      const wall = x < 1 || x > 5 || y < cy - 2 || y > cy + 2;
+      if (wall) return (z % 7 < 1) ? [RINGC, 'body'] : ((z % 6 < 1) ? [TUBE2, 'body'] : [TUBE, 'body']);
+      if (z <= 13) return (z % 3 < 1) ? [WARN, 'body'] : [TIP, 'body'];   // 管内露出白弹头+红警示环
+      return [-1, null];                                                  // 后段空
+    }
+    // 前口圈
+    if (z <= 2 && x >= 0 && x <= 6 && y >= cy - 3 && y <= cy + 3) { return (x < 1 || x > 5 || y < cy - 2 || y > cy + 2) ? [DARK, 'body'] : [-1, null]; }
+    // 后喷口（略收）
+    if (z >= 52 && z <= 60 && x >= 1 && x <= 5 && y >= cy - 2 && y <= cy + 2) return (z > 56) ? [DARK, 'body'] : [TUBE2, 'body'];
+    // 顶部制导光学瞄具 z16..42（前后镜片发蓝）
+    if (x >= 2 && x <= 4 && y >= cy + 4 && y <= cy + 7 && z >= 16 && z <= 42) return (z === 16 || z === 42) ? [LENS, 'body'] : [OPT, 'body'];
+    if (x >= 2 && x <= 4 && y === cy + 3 && (z === 18 || z === 40)) return [OPT, 'body'];   // 镜座
+    // 握把 + 扳机护圈
+    if (x >= 2 && x <= 4 && y >= cy - 8 && y <= cy - 3 && z >= 42 && z <= 47) return [GRIP, 'body'];
+    if (ring(z, y, 45, cy - 6, 3, 2) && x >= 2 && x <= 4) return [TUBE2, 'body'];
+    // 前握把
+    if (x >= 2 && x <= 4 && y >= cy - 7 && y <= cy - 4 && z >= 22 && z <= 26) return [GRIP, 'body'];
+    return null;
+  },
 };
 
 const DIMS = {
-  步枪: [5, 22, 72], 手枪: [5, 16, 26], 霰弹枪: [5, 18, 60], 火箭筒: [7, 16, 64], 狙击枪: [5, 24, 84], 加特林: [9, 20, 76], 砍刀: [4, 14, 44],
+  步枪: [5, 22, 72], 手枪: [5, 16, 26], 霰弹枪: [5, 18, 60], 火箭筒: [7, 16, 64], 狙击枪: [5, 24, 84], 加特林: [9, 20, 76], 砍刀: [4, 14, 44], 追踪导弹: [7, 18, 70],
 };
-const MUZ_Y = { 步枪: 12, 手枪: 11, 霰弹枪: 13, 火箭筒: 8, 狙击枪: 11, 加特林: 10, 砍刀: 7 };
+const MUZ_Y = { 步枪: 12, 手枪: 11, 霰弹枪: 13, 火箭筒: 8, 狙击枪: 11, 加特林: 10, 砍刀: 7, 追踪导弹: 9 };
 
 export function makeWeaponMesh(type) {
   const b = BUILDERS[type] || BUILDERS.步枪;

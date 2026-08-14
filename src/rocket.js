@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 
+const _FWD = new THREE.Vector3(0, 0, 1);
+
 /**
  * 会飞的火箭弹。发射后沿方向飞行，撞到敌人/墙/地面/飞到最大射程就爆炸。
  * update() 返回 { explode:true, point, direct } 时，由 main.js 触发爆炸。
@@ -15,6 +17,13 @@ export class Rocket {
     this.life = cfg.射程 / cfg.弹速 + 0.3;
     this.hitMeshes = hitMeshes;
     this.ray = new THREE.Raycaster();
+
+    // 制导（追踪导弹）：发射后锁定并转向敌人
+    this.homing = !!cfg.追踪;
+    this.turnRate = cfg.转向 || 3.2;   // 每秒最多转多少弧度
+    this.target = null;
+    this._t1 = new THREE.Vector3();
+    this._t2 = new THREE.Vector3();
 
     // 弹体：暗色弹身 + 发光弹头 + 尾焰
     this.group = new THREE.Group();
@@ -52,6 +61,7 @@ export class Rocket {
 
   update(dt, enemies) {
     this.age += dt;
+    if (this.homing) this._steer(dt, enemies);
     const step = this.speed * dt;
     const from = this.pos.clone();
     const to = this.pos.clone().addScaledVector(this.dir, step);
@@ -61,7 +71,8 @@ export class Rocket {
     for (const en of enemies) {
       if (en.dead || en.airborne) continue;
       const c = en.root.position;
-      const center = new THREE.Vector3(c.x, 1.0 * en.scaleFactor, c.z);
+      const cy = en.flying ? c.y + 0.5 : 1.0 * en.scaleFactor;   // 会飞的在空中
+      const center = new THREE.Vector3(c.x, cy, c.z);
       const t = this._closestOnSeg(from, to, center);
       const cp = from.clone().addScaledVector(this.dir, t * step);
       const rr = 0.55 * en.scaleFactor + 0.2;
@@ -95,6 +106,43 @@ export class Rocket {
     this.flame.scale.z = 0.8 + Math.random() * 0.6;
     this.updateSmoke(dt);
     return null;
+  }
+
+  /** 制导：锁定并平滑转向目标（保持当前目标，死了才重新锁） */
+  _steer(dt, enemies) {
+    if (!this.target || this.target.dead) this.target = this._acquire(enemies);
+    const en = this.target;
+    if (!en || en.dead) return;
+    const c = en.root.position;
+    const cy = en.flying ? c.y + 0.5 : 1.0 * en.scaleFactor;
+    const desired = this._t1.set(c.x - this.pos.x, cy - this.pos.y, c.z - this.pos.z);
+    if (desired.lengthSq() < 1e-6) return;
+    desired.normalize();
+    const angle = this.dir.angleTo(desired);
+    if (angle > 1e-4) {
+      const t = Math.min(1, (this.turnRate * dt) / angle);
+      this.dir.lerp(desired, t).normalize();
+      this.group.quaternion.setFromUnitVectors(_FWD, this.dir);
+    }
+  }
+
+  /** 挑一个"最接近当前朝向、够近"的敌人锁定 */
+  _acquire(enemies) {
+    let best = null, bestScore = -Infinity;
+    for (const en of enemies) {
+      if (en.dead || en.airborne) continue;
+      const c = en.root.position;
+      const cy = en.flying ? c.y + 0.5 : 1.0 * en.scaleFactor;
+      const to = this._t2.set(c.x - this.pos.x, cy - this.pos.y, c.z - this.pos.z);
+      const dist = to.length();
+      if (dist > 48 || dist < 0.1) continue;
+      to.divideScalar(dist);
+      const dot = this.dir.dot(to);
+      if (dot < 0.2) continue;                 // 只锁前方约 78° 锥内
+      const score = dot - dist * 0.008;        // 朝向优先，略偏近
+      if (score > bestScore) { bestScore = score; best = en; }
+    }
+    return best;
   }
 
   _closestOnSeg(a, b, p) {
