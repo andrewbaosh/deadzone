@@ -21,12 +21,14 @@ import { DynamicLights } from './graphics/DynamicLights.js';
 import { EyeField } from './graphics/EyeField.js';
 import { makeDetailNormal } from './graphics/detailTexture.js';
 import { 打击感, 波次曲线, 音效氛围, 掉落, 受击指示 } from './config/gameplay.js';
-import { playHeartbeat, playPickup, playShot } from './audio.js';
+import { playHeartbeat, playPickup, playShot, playRocketFire } from './audio.js';
 import { Pickups } from './pickups.js';
 import { Minimap } from './minimap.js';
 import { Boss } from './boss.js';
 import { RifleBoss } from './rifleBoss.js';
-import { BOSS, 沙漠, 步枪Boss, 军营, 要塞 } from './config/gameplay.js';
+import { Bomber } from './bomber.js';
+import { Tank } from './tank.js';
+import { BOSS, 沙漠, 步枪Boss, 军营, 要塞, 轰炸机, 坦克 } from './config/gameplay.js';
 
 /* ============ 渲染基础 ============ */
 const canvas = document.getElementById('game');
@@ -139,6 +141,12 @@ let bossActive = false;
 // 瞄准状态：切换式(F)或按住式(右键)，两者取或
 let aimToggle = false;
 let rightHeld = false;
+let mouseHeld = false;          // 左键是否按住（坦克开炮用）
+// 第七波：僵尸轰炸机 + 友军坦克
+let bombers = [];
+let tank = null;
+let inTank = false;             // 是否在坦克里
+let tankFireCd = 0;
 let prevWeaponName = '步枪';    // 检测换枪以自动收镜
 
 /* ============ HUD 元素 ============ */
@@ -165,6 +173,7 @@ const hud = {
   bossHud: el('boss-hud'),
   bossFill: el('boss-hud').querySelector('.boss-fill'),
   bossName: el('boss-hud').querySelector('.boss-name'),
+  tankHint: el('tank-hint'),
 };
 
 function setCenterMsg(html, show = true) {
@@ -232,7 +241,7 @@ document.addEventListener('keydown', (e) => {
   if (e.code === 'Digit7') weapons.switchTo('砍刀');
   if (e.code === 'Digit8') weapons.switchTo('追踪导弹');
   if (e.code === 'KeyQ') weapons.quickSwitch();                   // CS：Q 快速切回上一把
-  if (e.code === 'KeyF') aimToggle = !aimToggle;                  // 开/关瞄准镜（狙击开镜）
+  if (e.code === 'KeyF') tryToggleTank();                         // 靠近友军坦克=上/下车；否则开/关瞄准镜
   if (e.code === 'KeyE') { const i = (weapons.slots.indexOf(weapons.current) + 1) % weapons.slots.length; weapons.switchByIndex(i); } // 循环换枪（备用）
   if (e.code === 'KeyM') { const on = toggleMusic(); flashWaveBanner(on ? '♪ 音乐开' : '♪ 音乐关'); }
   if (e.code === 'F7') { quality.cycleTier(); flashWaveBanner('画质 ' + quality.tierName); }
@@ -249,11 +258,11 @@ document.addEventListener('mousemove', (e) => {
 document.addEventListener('mousedown', (e) => {
   if (state === STATE.DEAD) return;
   if (document.pointerLockElement !== canvas) return;
-  if (e.button === 0) weapons.setTrigger(true);
+  if (e.button === 0) { mouseHeld = true; if (!inTank) weapons.setTrigger(true); }
   if (e.button === 2) { rightHeld = true; }
 });
 document.addEventListener('mouseup', (e) => {
-  if (e.button === 0) weapons.setTrigger(false);
+  if (e.button === 0) { mouseHeld = false; weapons.setTrigger(false); }
   if (e.button === 2) { rightHeld = false; }
 });
 document.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -282,7 +291,12 @@ function startFreshGame() {
   hud.pickupToast.style.opacity = '0';
   shakeAmount = 0;
   score = 0; wave = 0; kills = 0;
-  // 回到小镇地图（上一局可能停在沙漠/军营）
+  // 清掉第七波的轰炸机/坦克
+  for (const bm of bombers) bm.remove(); bombers = [];
+  if (tank) { tank.remove(); tank = null; }
+  inTank = false; hud.tankHint.style.display = 'none';
+  hud.crosshair.classList.remove('tank');
+  // 回到小镇地图（上一局可能停在沙漠/军营/要塞）
   if (activeLevel !== level) {
     switchMap(level, 'town');
   }
@@ -343,14 +357,8 @@ function startNextWave() {
     flashWaveBanner('🚀 军营 · 飞行尸潮！');
     return;
   }
-  // 第 7 波 = 军民要塞（超大图）：地面+飞行混合尸潮，清空即最终通关
-  if (wave === 要塞.波数) {
-    toSpawn = 要塞.数量;
-    spawnTimer = 0;
-    playWaveStart();
-    flashWaveBanner('🏰 军民要塞 · 最终决战！');
-    return;
-  }
+  // 第 7 波 = 军民要塞（超大图）：僵尸轰炸机(投僵尸) + 友军坦克，清空即最终通关
+  if (wave === 要塞.波数) { spawnBombersAndTank(); return; }
   let count = Math.round(波次.第一波数量 + (wave - 1) * 波次.每波增加);
   // 波次曲线：每隔几波来一次小高潮（数量激增）
   const isElite = 波次曲线.启用扩展曲线 && wave % 波次曲线.精英波间隔 === 0;
@@ -370,35 +378,17 @@ function flashWaveBanner(text) {
   b.classList.add('show');
 }
 
-const _spawnPos = new THREE.Vector3();
 function spawnOne() {
-  let pos;
-  if (wave === 要塞.波数) {
-    // 超大要塞：在玩家周围环形范围内刷（否则 920m 外永远等不到）
-    const [r0, r1] = 要塞.刷怪半径;
-    const a = Math.random() * Math.PI * 2;
-    const r = r0 + Math.random() * (r1 - r0);
-    const b = activeLevel.size - 4;
-    pos = _spawnPos.set(
-      Math.max(-b, Math.min(b, player.pos.x + Math.cos(a) * r)), 0,
-      Math.max(-b, Math.min(b, player.pos.z + Math.sin(a) * r)),
-    ).clone();
-  } else {
-    const pts = activeLevel.spawnPoints;
-    let best = pts[0], bestD = -1;
-    for (let t = 0; t < 4; t++) {
-      const p = pts[(Math.random() * pts.length) | 0];
-      const d = p.distanceToSquared(player.pos);
-      if (d > bestD) { bestD = d; best = p; }
-    }
-    pos = best.clone();
+  const pts = activeLevel.spawnPoints;
+  let best = pts[0], bestD = -1;
+  for (let t = 0; t < 4; t++) {
+    const p = pts[(Math.random() * pts.length) | 0];
+    const d = p.distanceToSquared(player.pos);
+    if (d > bestD) { bestD = d; best = p; }
   }
   const exclude = (wave === 沙漠.波数) ? 沙漠.排除类型 : null;
-  // 军营波全是会飞的；要塞波混合（约 飞行占比 是会飞的）
-  let forced = null;
-  if (wave === 军营.波数) forced = '飞行';
-  else if (wave === 要塞.波数 && Math.random() < 要塞.飞行占比) forced = '飞行';
-  const en = new Enemy(scene, pos, wave, forced, exclude, activeLevel.size);
+  const forced = (wave === 军营.波数) ? '飞行' : null;   // 军营波全是会飞的
+  const en = new Enemy(scene, best.clone(), wave, forced, exclude, activeLevel.size);
   enemies.push(en);
 }
 
@@ -436,10 +426,10 @@ function updateWaves(dt) {
     }
   }
 
-  // 本波清完
-  if (toSpawn <= 0 && aliveCount() === 0) {
+  // 本波清完（第七波还要求轰炸机全被打下来）
+  if (toSpawn <= 0 && aliveCount() === 0 && bombers.length === 0) {
     waveActive = false;
-    // 第七波（要塞混合尸潮）清空 = 最终通关
+    // 第七波（要塞：轰炸机+投下的僵尸）清空 = 最终通关
     if (wave >= 要塞.波数) { onFinalWin(); return; }
     // 第六波（军营飞尸潮）清空 → 撤入军民要塞打第七波
     if (wave === 军营.波数) transitionToFortress();
@@ -636,6 +626,98 @@ function onFinalWin() {
   }, 0);
 }
 
+/* ============ 第七波：僵尸轰炸机 + 友军坦克 ============ */
+function spawnBombersAndTank() {
+  bossActive = false;
+  waveActive = true;
+  toSpawn = 0;                         // 这一波不走普通刷怪，全靠轰炸机投放
+  for (const en of enemies) en.remove(); enemies = [];
+  bombers = [];
+  for (let i = 0; i < 要塞.轰炸机数; i++) bombers.push(new Bomber(scene, wave, (i / 要塞.轰炸机数) * Math.PI * 2));
+  // 友军坦克停在出生点旁
+  if (tank) tank.remove();
+  tank = new Tank(scene, new THREE.Vector3(8, 0, 16));
+  playWaveStart();
+  setCenterMsg('', false);
+  flashWaveBanner('🏰 军民要塞 · 轰炸机来袭！按 F 上坦克');
+}
+
+// 轰炸机投下一只下坠的僵尸
+function spawnDroppedZombie(pos) {
+  const en = new Enemy(scene, pos.clone(), wave, null, null, activeLevel.size);
+  en.root.position.copy(pos);
+  en.airborne = true;
+  en.vel.set((Math.random() - 0.5) * 2, -1, (Math.random() - 0.5) * 2);
+  enemies.push(en);
+}
+
+const _tankTmp = new THREE.Vector3();
+function tryToggleTank() {
+  if (state !== STATE.PLAYING || !tank) { aimToggle = !aimToggle; return; }   // 没坦克时 F 还是开镜
+  if (inTank) { exitTank(); return; }
+  const d = Math.hypot(player.pos.x - tank.root.position.x, player.pos.z - tank.root.position.z);
+  if (d <= 坦克.上车距离) enterTank();
+  else aimToggle = !aimToggle;
+}
+function enterTank() {
+  inTank = true;
+  weapons.setTrigger(false);
+  weapons.viewGroup.visible = false;
+  hud.crosshair.classList.add('tank');
+}
+function exitTank() {
+  inTank = false;
+  weapons.viewGroup.visible = true;
+  hud.crosshair.classList.remove('tank');
+  // 下车站到坦克旁边
+  player.pos.set(tank.root.position.x + 3.2, player.height, tank.root.position.z);
+  player.vel.set(0, 0, 0);
+}
+
+// 驾驶坦克：WASD 开车、鼠标瞄准、左键无限开炮、第三人称追尾相机
+function updateTank(dt) {
+  const t = tank;
+  const y = player.yaw, p = player.pitch;
+  const lookH = _tankTmp.set(-Math.sin(y), 0, -Math.cos(y));   // 相机水平朝向
+  const rightX = -Math.cos(y), rightZ = Math.sin(y);
+  const sp = 坦克.移动速度;
+  let mx = 0, mz = 0;
+  if (player.keys['KeyW']) { mx += lookH.x; mz += lookH.z; }
+  if (player.keys['KeyS']) { mx -= lookH.x; mz -= lookH.z; }
+  if (player.keys['KeyD']) { mx += rightX; mz += rightZ; }
+  if (player.keys['KeyA']) { mx -= rightX; mz -= rightZ; }
+  const ml = Math.hypot(mx, mz);
+  const pos = t.root.position;
+  if (ml > 0.01) {
+    mx /= ml; mz /= ml;
+    pos.x += mx * sp * dt; pos.z += mz * sp * dt;
+    const b = activeLevel.size - 6;
+    pos.x = Math.max(-b, Math.min(b, pos.x)); pos.z = Math.max(-b, Math.min(b, pos.z));
+    const targetHull = Math.atan2(mx, mz);
+    t.root.rotation.y += Math.atan2(Math.sin(targetHull - t.root.rotation.y), Math.cos(targetHull - t.root.rotation.y)) * Math.min(1, dt * 3);
+  }
+  // 炮塔朝相机水平方向
+  t.turret.rotation.y = y - t.root.rotation.y;
+  t.update(dt);
+
+  // 第三人称追尾相机
+  const camY = pos.y + 5.2;
+  camera.position.set(pos.x - lookH.x * 11, camY, pos.z - lookH.z * 11);
+  const lookDir = new THREE.Vector3(-Math.sin(y) * Math.cos(p), -Math.sin(p), -Math.cos(y) * Math.cos(p));
+  camera.lookAt(pos.x + lookDir.x * 30, pos.y + 2 + lookDir.y * 30, pos.z + lookDir.z * 30);
+
+  // 开炮（无限弹药）
+  tankFireCd -= dt;
+  if (mouseHeld && tankFireCd <= 0) {
+    tankFireCd = 坦克.开火间隔;
+    const muzzle = t.muzzleWorld(new THREE.Vector3());
+    spawnRocket({ origin: muzzle, dir: lookDir.clone() }, 坦克);
+    t.flash();
+    addShake(0.35 * 手感.屏幕震动);
+    playRocketFire();
+  }
+}
+
 /* ============ 撤离路标（屏幕方向指示） ============ */
 const _wp = new THREE.Vector3();
 function updateWaypoint() {
@@ -680,9 +762,9 @@ function updateWaypoint() {
 /* ============ 火箭筒 ============ */
 function addShake(a) { shakeAmount = Math.min(0.9, shakeAmount + a); }
 
-function spawnRocket(shot) {
-  // 用当前武器的配置（火箭筒 / 追踪导弹各自的弹速/追踪/爆炸）；异常时回退火箭筒
-  const cfg = (weapons.cfg && weapons.cfg.是火箭) ? weapons.cfg : 武器Config('火箭筒');
+function spawnRocket(shot, cfgOverride) {
+  // 用当前武器的配置（火箭筒 / 追踪导弹各自的弹速/追踪/爆炸）；坦克炮传 cfgOverride
+  const cfg = cfgOverride || ((weapons.cfg && weapons.cfg.是火箭) ? weapons.cfg : 武器Config('火箭筒'));
   const r = new Rocket(scene, shot.origin, shot.dir, cfg, staticHitList);
   rockets.push(r);
 }
@@ -698,6 +780,13 @@ function explode(center, direct, time, cfg = 武器Config('火箭筒')) {
     const bonus = (en === direct) ? cfg.直接伤害 : 0;
     const r = en.applyBlast(center, cfg.爆炸半径, cfg.爆炸伤害, cfg.冲击力, effects, bonus);
     if (r && r.killed) onKill(en, false);
+  }
+  // 对空中的僵尸轰炸机施加爆炸伤害（3D 距离）
+  for (const bm of bombers) {
+    if (bm.dead) continue;
+    const d = bm.root.position.distanceTo(center);
+    const R = cfg.爆炸半径 + 2;
+    if (d < R) bm.takeDamage((bm === direct ? cfg.直接伤害 : 0) + cfg.爆炸伤害 * Math.max(0.25, 1 - d / R), false, effects);
   }
 
   // 自己在范围内：受伤 + 被弹开（可以玩火箭跳）
@@ -726,6 +815,7 @@ function processShot(shot) {
     targets.push(en.head, en.torso, en.legL, en.legR, en.armL, en.armR);
   }
   if (boss && !boss.dead) targets.push(...boss.hitMeshes);
+  for (const bm of bombers) if (!bm.dead) targets.push(...bm.hitMeshes);
 
   for (const dir of shot.rays) {
     raycaster.set(_origin, dir);
@@ -741,6 +831,16 @@ function processShot(shot) {
     }
     const hit = hits[0];
     if (!shot.melee) effects.addTracer(muzzlePos(), hit.point);
+
+    const bmb = hit.object.userData.bomber;
+    if (bmb && !bmb.dead) {
+      const dmg = shot.damage;
+      bmb.takeDamage(dmg, false, effects);
+      effects.addSparks(hit.point, dir.clone().negate(), 6, 0xffcc66);
+      shot.onHit(false); showHitmarker(false);
+      if (手感.显示伤害数字) effects.addFloatingNumber(hit.point, String(Math.round(dmg)), 'hit');
+      continue;
+    }
 
     const bo = hit.object.userData.boss;
     if (bo && !bo.dead) {
@@ -967,14 +1067,14 @@ function frame() {
     // 换枪时自动收镜
     if (weapons.current !== prevWeaponName) { aimToggle = false; prevWeaponName = weapons.current; }
 
-    // 瞄准状态（F 切换 或 右键按住）
-    aiming = aimToggle || rightHeld;
+    // 瞄准状态（F 切换 或 右键按住）；坦克里不开镜
+    aiming = (aimToggle || rightHeld) && !inTank;
     const scoped = aiming && !!weapons.cfg.是狙击;
 
     // 瞄准镜 / 准星 / 枪模型 显隐
     hud.scope.style.display = scoped ? 'block' : 'none';
     hud.crosshair.style.visibility = scoped ? 'hidden' : 'visible';
-    weapons.viewGroup.visible = !scoped;
+    weapons.viewGroup.visible = !scoped && !inTank;
 
     // 命中顿帧：微时停，让打击更有分量（只减慢模拟，不影响镜头灵敏度）
     const simDt = hitstopTimer > 0 ? dt * 0.06 : dt;
@@ -1003,7 +1103,8 @@ function frame() {
     player.sensScale = camera.fov / 手感.视野角度;
     player.speedScale = scoped ? (weapons.cfg.开镜移速倍率 ?? 0.5) : 1;
 
-    player.update(simDt, time);
+    if (inTank) updateTank(simDt);
+    else player.update(simDt, time);
 
     // 屏幕震动（在相机定位之后叠加抖动）
     if (shakeAmount > 0.001) {
@@ -1015,7 +1116,7 @@ function frame() {
 
     const moving = (Math.abs(player.vel.x) + Math.abs(player.vel.z)) > 0.6;
     const yawDelta = player.yaw - _lastGunYaw; _lastGunYaw = player.yaw;
-    const shot = weapons.update(simDt, moving, aiming, yawDelta);
+    const shot = inTank ? null : weapons.update(simDt, moving, aiming, yawDelta);
     if (shot) {
       if (shot.rocket) spawnRocket(shot);
       else processShot(shot);
@@ -1030,7 +1131,7 @@ function frame() {
     // 火箭飞行 + 爆炸
     for (let i = rockets.length - 1; i >= 0; i--) {
       const r = rockets[i];
-      const res = r.update(simDt, enemies);
+      const res = r.update(simDt, enemies, bombers);
       if (res && res.explode) {
         explode(res.point, res.direct, time, r.cfg);
         r.remove();
@@ -1074,6 +1175,24 @@ function frame() {
         hud.bossFill.style.width = `${(boss.hp / boss.maxHp) * 100}%`;
       }
     }
+
+    // 僵尸轰炸机（投僵尸）+ 友军坦克
+    for (let i = bombers.length - 1; i >= 0; i--) {
+      const bm = bombers[i];
+      if (bm.dead) { bm.remove(); bombers.splice(i, 1); continue; }
+      const res = bm.update(simDt, player.pos);
+      if (res && res.drop) spawnDroppedZombie(res.drop);
+    }
+    if (tank && !inTank) tank.update(dt);
+    // 友军坦克提示
+    if (tank) {
+      if (inTank) { hud.tankHint.textContent = 'F 下坦克 · 左键开炮（弹药无限）'; hud.tankHint.style.display = 'block'; }
+      else {
+        const near = Math.hypot(player.pos.x - tank.root.position.x, player.pos.z - tank.root.position.z) <= 坦克.上车距离;
+        hud.tankHint.textContent = '按 F 上坦克';
+        hud.tankHint.style.display = near ? 'block' : 'none';
+      }
+    } else if (hud.tankHint.style.display !== 'none') hud.tankHint.style.display = 'none';
 
     // 掉落拾取
     const got = pickups.update(dt, player.pos);
@@ -1250,7 +1369,14 @@ window.__game = {
   // 测试：直接撤入军营打第六波会飞的僵尸
   forceBarracks() { if (boss) { boss.remove(); boss = null; } bossActive = false; wave = 步枪Boss.出现波数; transitionToBarracks(); startNextWave(); return { biome: scene._biome, wave, toSpawn, spawns: activeLevel.spawnPoints.length }; },
   // 测试：直接撤入军民要塞打第七波（超大图）
-  forceFortress() { if (boss) { boss.remove(); boss = null; } bossActive = false; wave = 军营.波数; transitionToFortress(); startNextWave(); return { biome: scene._biome, wave, size: activeLevel.size, far: camera.far, toSpawn }; },
+  forceFortress() { if (boss) { boss.remove(); boss = null; } bossActive = false; wave = 军营.波数; transitionToFortress(); startNextWave(); return { biome: scene._biome, wave, size: activeLevel.size, far: camera.far, bombers: bombers.length, tank: !!tank }; },
+  get bomberCount() { return bombers.length; },
+  get inTank() { return inTank; },
+  get tankPos() { return tank ? tank.root.position.toArray().map(n => +n.toFixed(1)) : null; },
+  board() { if (!tank) return false; player.pos.set(tank.root.position.x + 1, player.height, tank.root.position.z); tryToggleTank(); return inTank; },
+  tankFire() { mouseHeld = true; return true; },
+  tankFireStop() { mouseHeld = false; return true; },
+  bomberDamageAll(d) { for (const b of bombers) b.takeDamage(d, false, effects); return bombers.filter(b => !b.dead).length; },
   get biome() { return scene._biome; },
   // 测试：把玩家瞬移到撤离点内并推进停留判定
   tickExtraction(dt) { updateExtractionPhase(dt); return { holdProgress, state, extractionActive }; },

@@ -59,7 +59,7 @@ export class Rocket {
     this.smokeGeo = new THREE.SphereGeometry(0.16, 6, 5);
   }
 
-  update(dt, enemies) {
+  update(dt, enemies, bombers) {
     this.age += dt;
     if (this.homing) this._steer(dt, enemies);
     const step = this.speed * dt;
@@ -79,6 +79,16 @@ export class Rocket {
       if (cp.distanceToSquared(center) <= rr * rr && t < hitT) {
         hitT = t; hitEnemy = en;
         this._enemyHitPoint = cp;
+      }
+    }
+    // 撞轰炸机（大目标，半径更大）
+    if (bombers) for (const bm of bombers) {
+      if (bm.dead) continue;
+      const center = bm.root.position;
+      const t = this._closestOnSeg(from, to, center);
+      const cp = from.clone().addScaledVector(this.dir, t * step);
+      if (cp.distanceToSquared(center) <= 3.2 * 3.2 && t < hitT) {
+        hitT = t; hitEnemy = bm; this._enemyHitPoint = cp;
       }
     }
 
