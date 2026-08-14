@@ -307,3 +307,13 @@
 - **改了哪些文件**：`config.js`(追踪导弹)、`rocket.js`(homing 制导+飞尸命中高度修复)、`main.js`(spawnRocket 用当前武器cfg / explode 收 cfg / Digit8 热键)、`weapon.js`(slots)、`graphics/voxel/weapons.js`(追踪导弹 builder)、`index.html`(HUD/帮助)。
 - **自测**：切枪「追踪导弹 HOMING」2/10、模型536三角；把僵尸放在侧前方(离轴)，朝正前方发射→导弹锁定(locked)并拐弯咬中把它炸死(killed)；火箭筒不受影响；小镇 selftest 仍 ok；0 报错。截图 `homing.png`。
 - **给你早上的问题**：转向太猛/太笨在 `config.js` 的 `追踪导弹.转向`（现 3.6，越大拐得越急）；弹速在 `弹速`（现 30）。
+
+### 第七波 · 军民要塞（超大地图，第四张关卡）✅
+- **做了什么**：击败第六波军营飞尸潮后，撤入**军民要塞**——每边约 920m（军营的 10 倍）的超大地图，打一波**地面+会飞混合尸潮**，清空即最终通关。
+  - **大地图支持**（核心工程）：`Level` 支持 `size` 参数（要塞 460）；相机视距按地图大小拉远（要塞 far≈1058）；要塞生态雾极薄(0.12x)看得到对面；**阴影相机每帧跟随玩家**（大地图不可能全覆盖）；**寻路网格改粗**（huge 用 cell 6，别炸 BFS）；敌人活动边界随地图放大；**敌人在玩家周围环形(46-90m)刷**（否则 920m 外永远等不到）；**小地图以玩家为中心**动态绘制附近掩体。
+  - **要塞场景**（`level.js` theme='fortress'）：石砖地、16m 高大石墙、中央要塞主楼、内环营房/瞭望塔、外环大瞭望塔、四角棱堡；战地日光。
+  - **混合尸潮**：34 只，约 40% 是会飞的喷气背包僵尸，其余地面各型。
+  - **流程**（`main.js`）：第六波清空→`transitionToFortress`；第七波清空→`onFinalWin`；`switchMap` 统一切图并调相机视距；重开局切回小镇（相机视距复位）。
+- **改了哪些文件**：`config/gameplay.js`(要塞配置)、`level.js`(size/huge/fortress 主题+灯光+街景+粗流场)、`graphics/atmosphere.js`(fortress 薄雾生态)、`enemy.js`(活动边界随地图)、`minimap.js`(超大图以玩家为中心)、`main.js`(第四关卡+相机视距+太阳跟随+近身刷怪+第七波流程+forceFortress)。
+- **自测**：forceFortress→biome=fortress/size460/far1058/wave7/34只；敌人在玩家周围52-56m 刷、地面+飞行混合、draw 仅 73、小地图玩家居中；重开回小镇；小镇 selftest 仍 ok(draw102)；0 报错。截图 `fortress.png`。
+- **给你早上的问题**：第七波现在打的是"混合尸潮"（你只定了地图）。想让第七波是 Boss、双 Boss、或别的，跟我说。数值在 `gameplay.js` 的 `要塞`（`数量`/`飞行占比`/`刷怪半径`/`地图大小`）。

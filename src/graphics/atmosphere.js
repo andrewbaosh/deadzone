@@ -30,10 +30,15 @@ const DESERT_STOPS = [   // 明亮白天：天蓝→暖沙
 const BARRACKS_STOPS = [  // 阴冷黄昏：铅灰天→冷绿地
   [0.00, '#6b7684'], [0.42, '#8a94a0'], [0.58, '#9a9c8e'], [0.72, '#6e6f5c'], [1.00, '#33352a'],
 ];
+const FORTRESS_STOPS = [  // 战地日光：暖白天→石灰地
+  [0.00, '#aeb6c2'], [0.42, '#c9cdcf'], [0.58, '#c8c2b0'], [0.72, '#9c968a'], [1.00, '#5c574d'],
+];
 const BIOME = {
   town:     { fog: (GFX.雾色 ?? 色卡.夜色), fogMul: 1.0, expMul: 1.0, envInt: (GFX.环境光强度 ?? 0.85), stops: TOWN_STOPS },
   desert:   { fog: 0xd8c49a, fogMul: 0.5, expMul: 1.15, envInt: 1.05, stops: DESERT_STOPS },
   barracks: { fog: 0x8a8f88, fogMul: 0.7, expMul: 1.0, envInt: 0.95, stops: BARRACKS_STOPS },
+  // 超大要塞：雾极薄(0.12x)，看得到远处；曝光略高
+  fortress: { fog: 0xb8bcc0, fogMul: 0.12, expMul: 1.08, envInt: 1.0, stops: FORTRESS_STOPS },
 };
 
 /** 切换生态（'town' | 'desert'）：雾色/背景/曝光/环境 IBL 一起换 */

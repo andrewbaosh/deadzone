@@ -26,11 +26,12 @@ export class Level {
     this.root = new THREE.Group();
     scene.add(this.root);
     this.scene = this.root;   // 内部 this.scene.add(...) 一律进 root
-    this.theme = opts.theme || 'town';   // 'town' | 'desert'
+    this.theme = opts.theme || 'town';   // 'town' | 'desert' | 'barracks' | 'fortress'
     this.colliders = [];      // {min:Vector3, max:Vector3}
     this.hitMeshes = [];      // 子弹能打中的静态物体
     this.spawnPoints = [];
-    this.size = 46;           // 场地半径（正方形半边长）
+    this.size = opts.size ?? 46;           // 场地半径（正方形半边长）
+    this.huge = this.size > 120;           // 超大地图：寻路/刷怪/阴影按大地图处理
     this.shadowMapSize = opts.shadowMapSize || 2048;
     this.sun = null;          // 主方向光（供画质切换时调整阴影分辨率）
     this.build();
@@ -76,7 +77,8 @@ export class Level {
 
     const desert = this.theme === 'desert';
     const barracks = this.theme === 'barracks';
-    const cobble = !desert && !barracks;   // 只有小镇用鹅卵石贴图
+    const fortress = this.theme === 'fortress';
+    const cobble = !desert && !barracks && !fortress;   // 只有小镇用鹅卵石贴图
 
     // ---------- 地面 ----------
     const groundGeo = new THREE.PlaneGeometry(S * 2, S * 2, 1, 1);
@@ -84,7 +86,9 @@ export class Level {
       ? new THREE.MeshStandardMaterial({ color: 0xcaa96f, roughness: 1.0, metalness: 0 })
       : barracks
         ? new THREE.MeshStandardMaterial({ color: 0x6d6c5c, roughness: 1.0, metalness: 0 })   // 泥土/碎石
-        : new THREE.MeshStandardMaterial({ color: 0xb8a888, roughness: 0.95, metalness: 0 });
+        : fortress
+          ? new THREE.MeshStandardMaterial({ color: 0x77726a, roughness: 1.0, metalness: 0 })   // 石砖/砾石
+          : new THREE.MeshStandardMaterial({ color: 0xb8a888, roughness: 0.95, metalness: 0 });
     if (cobble && GFX.体素细节 !== false) {
       try {
         const { map, normalMap } = makeCobbleTextures(512, 11);
@@ -103,14 +107,15 @@ export class Level {
     this.hitMeshes.push(ground);
     this.ground = ground;   // 网格线已去掉（和石板风格冲突）
 
-    // ---------- 外墙（沙漠=砂岩壁；军营=混凝土围墙；小镇=深色围墙）----------
-    const wallH = 7;
+    // ---------- 外墙（要塞=高大石墙；沙漠=砂岩壁；军营=混凝土；小镇=深色围墙）----------
+    const wallH = fortress ? 16 : 7;
+    const wallThick = fortress ? 3 : 1.2;
     const wallRough = cobble ? 0.85 : 1.0;
-    const wallColor = desert ? 0x9a7a4c : barracks ? 0x585a4c : 0x353b44;
-    this.addBox(0, 0, -S, S * 2, wallH, 1.2, wallColor, { roughness: wallRough });
-    this.addBox(0, 0, S, S * 2, wallH, 1.2, wallColor, { roughness: wallRough });
-    this.addBox(-S, 0, 0, 1.2, wallH, S * 2, wallColor, { roughness: wallRough });
-    this.addBox(S, 0, 0, 1.2, wallH, S * 2, wallColor, { roughness: wallRough });
+    const wallColor = fortress ? 0x6b6459 : desert ? 0x9a7a4c : barracks ? 0x585a4c : 0x353b44;
+    this.addBox(0, 0, -S, S * 2, wallH, wallThick, wallColor, { roughness: wallRough });
+    this.addBox(0, 0, S, S * 2, wallH, wallThick, wallColor, { roughness: wallRough });
+    this.addBox(-S, 0, 0, wallThick, wallH, S * 2, wallColor, { roughness: wallRough });
+    this.addBox(S, 0, 0, wallThick, wallH, S * 2, wallColor, { roughness: wallRough });
 
     // ---------- 中央高台（可登高）：碰撞在此，视觉在 showcase ----------
     this.addCollider(0, 0, 0, 12, 3.2, 12);
@@ -156,8 +161,8 @@ export class Level {
 
     this.buildLights();
     this.buildAmbiance();
-    // 所有碰撞盒登记完后，建流场寻路网格
-    this.flow = new FlowField(this.colliders, this.size, 1.6);
+    // 所有碰撞盒登记完后，建流场寻路网格（超大地图用更粗的格，别炸 BFS）
+    this.flow = new FlowField(this.colliders, this.size, this.huge ? 6 : 1.6);
   }
 
   /** 氛围：小镇=暖窗+街灯+南法街景；沙漠=沙丘/仙人掌；军营=营房/帐篷/沙袋/瞭望塔 */
@@ -169,6 +174,10 @@ export class Level {
     if (this.theme === 'barracks') {
       if (GFX.街灯 !== false) this.addLamps();   // 探照/营地灯复用街灯池
       if (GFX.体素细节 !== false) this.addBarracksShowcase();
+      return;
+    }
+    if (this.theme === 'fortress') {
+      if (GFX.体素细节 !== false) this.addFortressShowcase();
       return;
     }
     if (GFX.暖窗 !== false) this.addWindows();
@@ -350,6 +359,7 @@ export class Level {
   buildLights() {
     if (this.theme === 'desert') return this.buildDesertLights();
     if (this.theme === 'barracks') return this.buildBarracksLights();
+    if (this.theme === 'fortress') return this.buildFortressLights();
     // 半球光：上冷天光 / 下暖地面反弹（可读的黄昏，不再纯黑）
     this.scene.add(new THREE.HemisphereLight(0x9aa8d0, 0x7a5e40, 1.6));
     // 环境光补暗部（暖一点）
@@ -487,6 +497,61 @@ export class Level {
     // 地标：四角瞭望塔
     const towers = [[-34, -34], [34, -34], [-34, 34], [34, 34]];
     towers.forEach(([x, z], i) => this.placeVoxel(makeWatchtower(i + 1), vs, x, z, 0, { batch: 'towers', collide: true }));
+
+    this.flushBatches();
+    this.voxelStats = { tris: this._voxTris };
+  }
+
+  /** 要塞·战地日光：暖白主光 + 冷天光，阴影跟随玩家（大地图，main 每帧移动太阳） */
+  buildFortressLights() {
+    this.scene.add(new THREE.HemisphereLight(0x9098a4, 0x50493e, 1.55));
+    this.scene.add(new THREE.AmbientLight(0x70706a, 0.42));
+    const sun = new THREE.DirectionalLight(0xdcd6c4, 2.0);
+    sun.position.set(40, 62, 30);
+    sun.target.position.set(0, 0, 0);
+    this.scene.add(sun.target);
+    sun.castShadow = true;
+    sun.shadow.mapSize.set(this.shadowMapSize, this.shadowMapSize);
+    const d = 60;   // 阴影只覆盖玩家周围一块（大地图不可能全覆盖）
+    sun.shadow.camera.left = -d; sun.shadow.camera.right = d;
+    sun.shadow.camera.top = d; sun.shadow.camera.bottom = -d;
+    sun.shadow.camera.near = 1; sun.shadow.camera.far = 220;
+    sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.04;
+    this.scene.add(sun);
+    this.sun = sun;
+    this.sunOffset = sun.position.clone();   // main 用它让太阳跟随玩家（保持光照方向）
+  }
+
+  /** 军民要塞：中央要塞主楼 + 战区掩体 + 内外环营房/瞭望塔 + 四角棱堡 */
+  addFortressShowcase() {
+    const vs = 0.16;
+    const stonePal = { stone: 0x8a857a, stone2: 0x767066, cap: 0x9a958a, dark: 0x5a554c };
+    // 中央要塞主楼（可登高，碰撞已登记）
+    this.placeVoxel(makeStonePlatform(76, 22, stonePal), vs, 0, 0, 0, { batch: 'props', rough: 1.0 });
+    // 中央战区掩体（复用同套碰撞点）
+    this.stallSpots.forEach(([x, z, rot], i) => this.placeVoxel(makeTent(i + 1), vs, x, z, rot, { batch: 'tents' }));
+    this.crateSpots.forEach(([x, z], i) => this.placeVoxel(makeMilCrate(i + 1), vs, x, z, (i % 4) * Math.PI / 2, { batch: 'crates' }));
+    this.planterSpots.forEach(([x, z], i) => this.placeVoxel(makeSandbags(i + 1), vs, x, z, (i % 2) * Math.PI / 2, { batch: 'sandbags' }));
+    this.barrelSpots.forEach(([x, z]) => this.placeVoxel(makeBarrel(), vs, x, z, 0, { batch: 'drums' }));
+
+    const faceIn = (x, z) => (Math.abs(x) > Math.abs(z) ? (x > 0 ? -Math.PI / 2 : Math.PI / 2) : (z > 0 ? Math.PI : 0));
+    // 内环：营房 + 瞭望塔交替（半径 ~110）
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2, x = Math.cos(a) * 110, z = Math.sin(a) * 110;
+      if (i % 2 === 0) this.placeVoxel(makeBarracksHut(i + 1, { w: 44, h: 22, d: 18 }), vs, x, z, faceIn(x, z), { batch: 'huts', collide: true });
+      else this.placeVoxel(makeWatchtower(i + 1), vs, x, z, 0, { batch: 'towers', collide: true });
+    }
+    // 外环：大瞭望塔（半径 ~ min(size-30, 250)）
+    const ring2 = Math.min(this.size - 40, 250);
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 + 0.4, x = Math.cos(a) * ring2, z = Math.sin(a) * ring2;
+      this.placeVoxel(makeWatchtower(i + 3), vs, x, z, 0, { batch: 'towers2', collide: true });
+    }
+    // 四角棱堡塔（贴近外墙）
+    const c = this.size - 45;
+    for (const [x, z] of [[-c, -c], [c, -c], [-c, c], [c, c]]) {
+      this.placeVoxel(makeWatchtower(9), vs, x, z, 0, { batch: 'bastions', collide: true });
+    }
 
     this.flushBatches();
     this.voxelStats = { tris: this._voxTris };

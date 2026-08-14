@@ -26,10 +26,11 @@ function pickType(wave, exclude) {
 }
 
 export class Enemy {
-  constructor(scene, spawnPos, wave, forcedType, excludeTypes) {
+  constructor(scene, spawnPos, wave, forcedType, excludeTypes, worldSize = 46) {
     this.scene = scene;
     this.dead = false;
     this.wave = wave;
+    this.bound = worldSize - 2;   // 活动边界（随地图大小；超大要塞时很大）
 
     // 决定类型（数值集中在 gameplay.js 的 丧尸种类）
     const typeName = forcedType && 丧尸种类[forcedType] ? forcedType : pickType(wave, excludeTypes);
@@ -194,8 +195,8 @@ export class Enemy {
     pos.x += (to.x * fwd + px * 3) * dt;
     pos.z += (to.z * fwd + pz * 3) * dt;
     pos.y += (wantY - pos.y) * Math.min(1, dt * 3);
-    pos.x = Math.max(-44, Math.min(44, pos.x));
-    pos.z = Math.max(-44, Math.min(44, pos.z));
+    pos.x = Math.max(-this.bound, Math.min(this.bound, pos.x));
+    pos.z = Math.max(-this.bound, Math.min(this.bound, pos.z));
 
     // 喷气火焰脉动
     if (this.jetFlames) for (const f of this.jetFlames) { f.scale.set(1, 0.7 + Math.random() * 0.7, 1); f.material.opacity = 0.6 + Math.random() * 0.4; }
@@ -314,7 +315,7 @@ export class Enemy {
     this.root.rotation.z += this.spin.z * dt;
 
     // 别飞出场地
-    const B = 44;
+    const B = this.bound;
     pos.x = Math.max(-B, Math.min(B, pos.x));
     pos.z = Math.max(-B, Math.min(B, pos.z));
 

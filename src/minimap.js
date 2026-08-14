@@ -9,6 +9,8 @@ export class Minimap {
     this.enabled = GFX.小地图 !== false;
     this.level = level;
     this.S = level.size;
+    this.huge = !!level.huge;
+    this.view = this.huge ? 120 : level.size;
     if (!this.enabled) return;
 
     const size = 168;
@@ -29,16 +31,19 @@ export class Minimap {
     this.bakeStatic();
   }
 
-  /** 切换关卡（沙漠/小镇）：重烘掩体轮廓 */
+  /** 切换关卡：重烘掩体轮廓（超大图改为以玩家为中心动态绘制） */
   setLevel(level) {
     this.level = level;
     this.S = level.size;
-    if (this.staticCanvas) this.bakeStatic();
+    this.huge = !!level.huge;
+    this.view = this.huge ? 120 : level.size;   // 显示玩家周围 view 米
+    if (!this.huge && this.staticCanvas) this.bakeStatic();
   }
 
-  w2m(x, z) {
-    const k = this.size / (this.S * 2);
-    return [this.size / 2 + x * k, this.size / 2 + z * k];
+  // 世界 → 小地图；以 (cx,cz) 为中心，显示半径 this.view
+  w2m(x, z, cx = 0, cz = 0) {
+    const k = this.size / (this.view * 2);
+    return [this.size / 2 + (x - cx) * k, this.size / 2 + (z - cz) * k];
   }
 
   bakeStatic() {
@@ -64,18 +69,33 @@ export class Minimap {
     ctx.arc(S / 2, S / 2, S / 2 - 2, 0, Math.PI * 2);
     ctx.clip();
 
-    ctx.drawImage(this.staticCanvas, 0, 0);
+    // 中心：普通图=世界原点(预烘轮廓)；超大图=玩家(每帧动态画附近掩体)
+    const cx = this.huge ? player.pos.x : 0, cz = this.huge ? player.pos.z : 0;
+    if (this.huge) {
+      ctx.fillStyle = 'rgba(150,150,170,.5)';
+      const lim = this.view + 20;
+      for (const c of this.level.colliders) {
+        if (c.max.y <= 1.0) continue;
+        const mx = (c.min.x + c.max.x) / 2, mz = (c.min.z + c.max.z) / 2;
+        if (Math.abs(mx - cx) > lim || Math.abs(mz - cz) > lim) continue;
+        const [x0, z0] = this.w2m(c.min.x, c.min.z, cx, cz);
+        const [x1, z1] = this.w2m(c.max.x, c.max.z, cx, cz);
+        ctx.fillRect(x0, z0, Math.max(1, x1 - x0), Math.max(1, z1 - z0));
+      }
+    } else {
+      ctx.drawImage(this.staticCanvas, 0, 0);
+    }
 
     // 撤离点
     if (extraction && extraction.active) {
-      const [ex, ez] = this.w2m(extraction.position.x, extraction.position.z);
+      const [ex, ez] = this.w2m(extraction.position.x, extraction.position.z, cx, cz);
       ctx.fillStyle = '#33ffcc';
       ctx.beginPath(); ctx.arc(ex, ez, 3.5, 0, Math.PI * 2); ctx.fill();
     }
     // 掉落物
     if (pickupsActive) {
       for (const p of pickupsActive) {
-        const [x, z] = this.w2m(p.mesh.position.x, p.mesh.position.z);
+        const [x, z] = this.w2m(p.mesh.position.x, p.mesh.position.z, cx, cz);
         ctx.fillStyle = p.kind === 'health' ? '#ff5a5a' : '#ffd24a';
         ctx.fillRect(x - 1.5, z - 1.5, 3, 3);
       }
@@ -84,11 +104,11 @@ export class Minimap {
     ctx.fillStyle = '#ff3b30';
     for (const e of enemies) {
       if (e.dead) continue;
-      const [x, z] = this.w2m(e.root.position.x, e.root.position.z);
+      const [x, z] = this.w2m(e.root.position.x, e.root.position.z, cx, cz);
       ctx.beginPath(); ctx.arc(x, z, 2, 0, Math.PI * 2); ctx.fill();
     }
     // 玩家（带朝向的三角）。前方=(-sin yaw,-cos yaw)，三角基朝上(-y)对应 yaw=0
-    const [px, pz] = this.w2m(player.pos.x, player.pos.z);
+    const [px, pz] = this.w2m(player.pos.x, player.pos.z, cx, cz);
     ctx.save();
     ctx.translate(px, pz);
     ctx.rotate(-player.yaw);
