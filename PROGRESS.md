@@ -296,3 +296,5 @@
 - **改了哪些文件**：`config/gameplay.js`(飞行类型+军营配置)、`enemy.js`(飞行 AI+喷气背包+坠地)、`graphics/voxel/voxelModels.js`(军营5种道具)、`level.js`(barracks 主题+灯光+街景)、`graphics/atmosphere.js`(barracks 生态)、`main.js`(第三关卡+switchMap+第六波流程+forceBarracks)。
 - **自测**：forceBarracks→biome=barracks/wave6/16只飞尸全在空中(y3.57)带喷气背包+火焰；完整链路 沙漠尖兵击杀→切军营→飞尸潮→清空最终通关→重开回小镇；小镇 selftest 仍 ok(draw114)；全程 0 报错。截图 `barracks.png`。
 - **给你早上的问题**：飞尸数量/飞行高度在 `gameplay.js` 的 `军营.数量` 和 `丧尸种类.飞行.飞行高度`；嫌军营空就往 `addBarracksShowcase` 里加道具。
+
+- **平衡调整（飞行僵尸"太超模"）**：数量 16→10、血量倍率 0.75→0.5（更快打死）、速度倍率 1.15→0.9（能跑能瞄）、伤害倍率 1.1→0.65（咬得更轻）、新增攻击间隔倍率 1.7（咬得更慢）。自测：toSpawn=10、单只 dmg9.1/speed2.78/hp84/atkMul1.7、0 报错。

@@ -54,6 +54,7 @@ export class Enemy {
     // 喷气背包·会飞
     this.flying = !!cfg.会飞;
     this.flyHeight = cfg.飞行高度 || 3.6;
+    this.atkIntervalMul = cfg.攻击间隔倍率 || 1;   // 咬人冷却倍率（飞尸更慢）
 
     this.attackTimer = 0;
     this.growlTimer = Math.random() * 4;
@@ -204,7 +205,7 @@ export class Enemy {
     let didAttack = 0;
     const d3 = Math.hypot(playerPos.x - pos.x, playerPos.y - pos.y, playerPos.z - pos.z);
     if (d3 <= CFG.攻击距离 + 0.7 && this.attackTimer <= 0) {
-      this.attackTimer = CFG.攻击间隔;
+      this.attackTimer = CFG.攻击间隔 * this.atkIntervalMul;
       didAttack = this.damage;
       this.armL.rotation.x = -2.4; this.armR.rotation.x = -2.4;
     }
