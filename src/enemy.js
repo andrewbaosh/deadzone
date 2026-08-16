@@ -61,6 +61,10 @@ export class Enemy {
     this.growlTimer = Math.random() * 4;
     this.hurtFlash = 0;
     this.knockback = new THREE.Vector3();
+    // 冰冻技能：frozen=被冻住(不能动、解冻即死)；iceTime=在冰面上站了多久
+    this.frozen = false;
+    this.freezeTimer = 0;
+    this.iceTime = 0;
 
     // 被冲击波震飞用的弹道状态
     this.vel = new THREE.Vector3();
@@ -228,6 +232,13 @@ export class Enemy {
     return { didAttack };
   }
 
+  /** 冻住：不能动，freezeTimer 秒后解冻即死 */
+  freeze(dur) {
+    if (this.dead) return;
+    this.frozen = true;
+    this.freezeTimer = Math.max(this.freezeTimer, dur);
+  }
+
   /** 受到伤害。返回是否致死。 */
   takeDamage(dmg, fromDir, effects, worldHitPoint) {
     if (this.dead) return false;
@@ -347,6 +358,21 @@ export class Enemy {
       this.root.rotation.x = Math.min(Math.PI / 2, this.root.rotation.x + dt * 4);
       if (this.root.position.y > 0.05) this.root.position.y = Math.max(0.05, this.root.position.y - dt * 0.5);
       return this.deathTimer > 0;   // false = 倒地完成，主循环把它烘焙成尸体
+    }
+
+    // 被冻住：定住不动、冰蓝发光；解冻(freezeTimer<=0)即死
+    if (this.frozen) {
+      this.freezeTimer -= dt;
+      this.bodyMat.emissive.setRGB(0.12, 0.46, 0.72);
+      this.headMat.emissive.setRGB(0.12, 0.46, 0.72);
+      this.knockback.set(0, 0, 0);
+      if (this.freezeTimer <= 0) {
+        this.frozen = false;
+        this.bodyMat.emissive.setRGB(0, 0, 0);
+        this.headMat.emissive.setRGB(0, 0, 0);
+        this.die();                 // 解冻即死
+      }
+      return { didAttack: 0 };
     }
 
     // 受击闪红

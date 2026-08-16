@@ -28,7 +28,8 @@ import { Boss } from './boss.js';
 import { RifleBoss } from './rifleBoss.js';
 import { Bomber } from './bomber.js';
 import { Tank } from './tank.js';
-import { BOSS, 沙漠, 步枪Boss, 军营, 要塞, 轰炸机, 坦克 } from './config/gameplay.js';
+import { Abilities } from './abilities.js';
+import { BOSS, 沙漠, 步枪Boss, 军营, 要塞, 轰炸机, 坦克, 技能 } from './config/gameplay.js';
 
 /* ============ 渲染基础 ============ */
 const canvas = document.getElementById('game');
@@ -101,6 +102,7 @@ const effects = new Effects(scene, camera);
 const extraction = new Extraction(scene);
 const pickups = new Pickups(scene);
 const minimap = new Minimap(level);
+const abilities = new Abilities(scene, camera, effects);
 const raycaster = new THREE.Raycaster();
 
 let enemies = [];
@@ -174,6 +176,9 @@ const hud = {
   bossFill: el('boss-hud').querySelector('.boss-fill'),
   bossName: el('boss-hud').querySelector('.boss-name'),
   tankHint: el('tank-hint'),
+  skZ: el('sk-z'), skX: el('sk-x'), skV: el('sk-v'),
+  skZcd: el('sk-z').querySelector('.sk-cd'), skXcd: el('sk-x').querySelector('.sk-cd'), skVcd: el('sk-v').querySelector('.sk-cd'),
+  skZnum: el('sk-z').querySelector('.sk-num'),
 };
 
 function setCenterMsg(html, show = true) {
@@ -242,11 +247,15 @@ document.addEventListener('keydown', (e) => {
   if (e.code === 'Digit8') weapons.switchTo('追踪导弹');
   if (e.code === 'KeyQ') weapons.quickSwitch();                   // CS：Q 快速切回上一把
   if (e.code === 'KeyF') tryToggleTank();                         // 靠近友军坦克=上/下车；否则开/关瞄准镜
+  // 三个技能（冰冻主题）
+  if (e.code === 技能.冷冻发射器.键) abilities.useFreeze(enemies);
+  if (e.code === 技能.冰罐.键) abilities.useIce(player);
+  if (e.code === 技能.震撼弹.键) abilities.useShock(player);
   if (e.code === 'KeyE') { const i = (weapons.slots.indexOf(weapons.current) + 1) % weapons.slots.length; weapons.switchByIndex(i); } // 循环换枪（备用）
   if (e.code === 'KeyM') { const on = toggleMusic(); flashWaveBanner(on ? '♪ 音乐开' : '♪ 音乐关'); }
   if (e.code === 'F7') { quality.cycleTier(); flashWaveBanner('画质 ' + quality.tierName); }
   if (e.code === 'F8') { statsPanel.toggle(); }
-  if (['KeyW','KeyA','KeyS','KeyD','Space','KeyR','KeyQ','KeyE','KeyF','KeyM','Digit1','Digit2','Digit3','Digit4','Digit5','Digit6','Digit7','Digit8'].includes(e.code)) e.preventDefault();
+  if (['KeyW','KeyA','KeyS','KeyD','Space','KeyR','KeyQ','KeyE','KeyF','KeyM','KeyZ','KeyX','KeyV','Digit1','Digit2','Digit3','Digit4','Digit5','Digit6','Digit7','Digit8'].includes(e.code)) e.preventDefault();
 });
 document.addEventListener('keyup', (e) => player.onKey(e.code, false));
 
@@ -294,6 +303,7 @@ function startFreshGame() {
   // 清掉第七波的轰炸机/坦克
   for (const bm of bombers) bm.remove(); bombers = [];
   if (tank) { tank.remove(); tank = null; }
+  abilities.reset();
   inTank = false; hud.tankHint.style.display = 'none';
   hud.crosshair.classList.remove('tank');
   // 回到小镇地图（上一局可能停在沙漠/军营/要塞）
@@ -396,6 +406,17 @@ function aliveCount() {
   let n = 0;
   for (const e of enemies) if (!e.dead) n++;
   return n;
+}
+
+function updateSkillsHud() {
+  const s = abilities.state();
+  hud.skZnum.textContent = s.freeze.ammo;
+  hud.skZcd.style.height = s.freeze.cd > 0 ? `${(s.freeze.cd / s.freeze.cdMax) * 100}%` : '0%';
+  hud.skZ.classList.toggle('ready', s.freeze.cd <= 0 && s.freeze.ammo > 0);
+  hud.skXcd.style.height = s.ice.cd > 0 ? `${(s.ice.cd / s.ice.cdMax) * 100}%` : '0%';
+  hud.skX.classList.toggle('ready', s.ice.cd <= 0);
+  hud.skVcd.style.height = s.shock.cd > 0 ? `${(s.shock.cd / s.shock.cdMax) * 100}%` : '0%';
+  hud.skV.classList.toggle('ready', s.shock.cd <= 0);
 }
 
 function updateWaves(dt) {
@@ -1194,6 +1215,10 @@ function frame() {
       }
     } else if (hud.tankHint.style.display !== 'none') hud.tankHint.style.display = 'none';
 
+    // 技能（冰冻）：更新特效/冷却 + HUD
+    abilities.update(simDt, enemies, player);
+    updateSkillsHud();
+
     // 掉落拾取
     const got = pickups.update(dt, player.pos);
     if (got) {
@@ -1371,6 +1396,12 @@ window.__game = {
   // 测试：直接撤入军民要塞打第七波（超大图）
   forceFortress() { if (boss) { boss.remove(); boss = null; } bossActive = false; wave = 军营.波数; transitionToFortress(); startNextWave(); return { biome: scene._biome, wave, size: activeLevel.size, far: camera.far, bombers: bombers.length, tank: !!tank }; },
   get bomberCount() { return bombers.length; },
+  skillState() { return abilities.state(); },
+  useFreeze() { return abilities.useFreeze(enemies); },
+  useIce() { return abilities.useIce(player); },
+  useShock() { return abilities.useShock(player); },
+  get frozenCount() { return enemies.filter((e) => e.frozen).length; },
+  get icePatches() { return abilities.patches.length; },
   get inTank() { return inTank; },
   get tankPos() { return tank ? tank.root.position.toArray().map(n => +n.toFixed(1)) : null; },
   board() { if (!tank) return false; player.pos.set(tank.root.position.x + 1, player.height, tank.root.position.z); tryToggleTank(); return inTank; },
