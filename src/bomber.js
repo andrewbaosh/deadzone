@@ -68,8 +68,9 @@ export class Bomber {
     pos.x += (tx - pos.x) * Math.min(1, dt * 2);
     pos.z += (tz - pos.z) * Math.min(1, dt * 2);
     pos.y += (轰炸机.高度 - pos.y) * Math.min(1, dt * 2);
-    this.root.rotation.y = Math.atan2(-Math.sin(this.angle), Math.cos(this.angle));
-    this.root.rotation.z = Math.sin(this.angle) * 0.12;
+    // 机头(模型 -z)对准飞行方向(切线 = (-sin a, cos a))，别倒着飞
+    this.root.rotation.y = Math.atan2(Math.sin(this.angle), -Math.cos(this.angle));
+    this.root.rotation.z = -Math.cos(this.angle) * 0.12;   // 转弯时朝内侧压坡
 
     let drop = null;
     if (this.dropsLeft > 0) {
