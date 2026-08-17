@@ -16,6 +16,14 @@ export class Bomber {
     this.dropTimer = 1.2 + Math.random() * 轰炸机.投放间隔;
     this.dropsLeft = 轰炸机.每机投放;
     this.hurtFlash = 0;
+    // 让每架飞得不一样：方向、基础半径/高度、以及高度/半径的起伏
+    this.t = Math.random() * 10;
+    this.dir = Math.random() < 0.5 ? 1 : -1;                 // 有的顺时针有的逆时针
+    this.rBase = 轰炸机.环绕半径 * (0.8 + Math.random() * 0.5);
+    this.hBase = 轰炸机.高度 + (Math.random() - 0.5) * 5;
+    this.hPhase = Math.random() * Math.PI * 2; this.hFreq = 0.35 + Math.random() * 0.45;
+    this.rPhase = Math.random() * Math.PI * 2; this.rFreq = 0.22 + Math.random() * 0.3;
+    this.spVar = 0.8 + Math.random() * 0.5;                  // 速度也略有不同
 
     const grp = new THREE.Group();
     this.bodyMat = new THREE.MeshStandardMaterial({ color: 0x5a6b3e, roughness: 0.82, metalness: 0.15 });
@@ -61,16 +69,22 @@ export class Bomber {
     if (this.dead) return null;
     if (this.hurtFlash > 0) { this.hurtFlash -= dt; const f = Math.max(0, this.hurtFlash / 0.08); this.bodyMat.emissive.setRGB(f, 0, 0); }
     // 绕玩家盘旋
-    this.angle += (轰炸机.速度 / 轰炸机.环绕半径) * dt;
-    const tx = playerPos.x + Math.cos(this.angle) * 轰炸机.环绕半径;
-    const tz = playerPos.z + Math.sin(this.angle) * 轰炸机.环绕半径;
+    this.t += dt;
+    this.angle += this.dir * (轰炸机.速度 * this.spVar / this.rBase) * dt;
+    // 半径/高度都在起伏 → 路线不规则
+    const R = this.rBase + Math.sin(this.t * this.rFreq + this.rPhase) * 12;
+    const H = this.hBase + Math.sin(this.t * this.hFreq + this.hPhase) * 4;
+    const tx = playerPos.x + Math.cos(this.angle) * R;
+    const tz = playerPos.z + Math.sin(this.angle) * R;
     const pos = this.root.position;
     pos.x += (tx - pos.x) * Math.min(1, dt * 2);
     pos.z += (tz - pos.z) * Math.min(1, dt * 2);
-    pos.y += (轰炸机.高度 - pos.y) * Math.min(1, dt * 2);
-    // 机头(模型 -z)对准飞行方向(切线 = (-sin a, cos a))，别倒着飞
-    this.root.rotation.y = Math.atan2(Math.sin(this.angle), -Math.cos(this.angle));
-    this.root.rotation.z = -Math.cos(this.angle) * 0.12;   // 转弯时朝内侧压坡
+    pos.y += (H - pos.y) * Math.min(1, dt * 1.5);
+    // 机头(模型 -z)对准实际飞行方向（含顺/逆时针）
+    const vx = -Math.sin(this.angle) * this.dir, vz = Math.cos(this.angle) * this.dir;
+    this.root.rotation.y = Math.atan2(-vx, -vz);
+    this.root.rotation.z = -Math.cos(this.angle) * this.dir * 0.14;   // 转弯朝内压坡
+    this.root.rotation.x = Math.sin(this.t * this.hFreq + this.hPhase) * 0.06;   // 随升降略仰俯
 
     let drop = null;
     if (this.dropsLeft > 0) {
