@@ -146,6 +146,7 @@ let rightHeld = false;
 let mouseHeld = false;          // 左键是否按住（坦克开炮用）
 // 第七波：僵尸轰炸机 + 友军坦克
 let bombers = [];
+let zombieBombs = [];           // 带降落伞的僵尸炸弹
 let tank = null;
 let inTank = false;             // 是否在坦克里
 let tankFireCd = 0;
@@ -300,8 +301,9 @@ function startFreshGame() {
   hud.pickupToast.style.opacity = '0';
   shakeAmount = 0;
   score = 0; wave = 0; kills = 0;
-  // 清掉第七波的轰炸机/坦克
+  // 清掉第七波的轰炸机/炸弹/坦克
   for (const bm of bombers) bm.remove(); bombers = [];
+  for (const zb of zombieBombs) scene.remove(zb.root); zombieBombs = [];
   if (tank) { tank.remove(); tank = null; }
   abilities.reset();
   inTank = false; hud.tankHint.style.display = 'none';
@@ -447,8 +449,8 @@ function updateWaves(dt) {
     }
   }
 
-  // 本波清完（第七波还要求轰炸机全被打下来）
-  if (toSpawn <= 0 && aliveCount() === 0 && bombers.length === 0) {
+  // 本波清完（第七波还要求轰炸机全灭、没有正在落的炸弹）
+  if (toSpawn <= 0 && aliveCount() === 0 && bombers.length === 0 && zombieBombs.length === 0) {
     waveActive = false;
     // 第七波（要塞：轰炸机+投下的僵尸）清空 = 最终通关
     if (wave >= 要塞.波数) { onFinalWin(); return; }
@@ -672,6 +674,56 @@ function spawnDroppedZombie(pos) {
   enemies.push(en);
 }
 
+// 僵尸炸弹（带降落伞，慢慢降落）
+const _bombMat = new THREE.MeshStandardMaterial({ color: 0x2c2f26, roughness: 0.7, metalness: 0.3 });
+const _chuteMat = new THREE.MeshStandardMaterial({ color: 0x5a6b3e, roughness: 0.9, side: THREE.DoubleSide });
+const _bombGeo = new THREE.SphereGeometry(0.42, 10, 8);
+const _chuteGeo = new THREE.SphereGeometry(1.5, 12, 6, 0, Math.PI * 2, 0, Math.PI / 2);   // 半球伞
+function spawnZombieBomb(pos) {
+  const g = new THREE.Group();
+  const bomb = new THREE.Mesh(_bombGeo, _bombMat); bomb.castShadow = true; g.add(bomb);
+  const fin = new THREE.Mesh(new THREE.ConeGeometry(0.3, 0.5, 6), _bombMat); fin.position.y = -0.5; fin.rotation.x = Math.PI; g.add(fin);
+  const chute = new THREE.Mesh(_chuteGeo, _chuteMat); chute.position.y = 2.2; g.add(chute);
+  // 伞绳
+  const cordMat = new THREE.LineBasicMaterial({ color: 0x2a2a24 });
+  for (const a of [0, Math.PI / 2, Math.PI, -Math.PI / 2]) {
+    const cg = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0.3, 0), new THREE.Vector3(Math.cos(a) * 1.3, 2.2, Math.sin(a) * 1.3)]);
+    g.add(new THREE.Line(cg, cordMat));
+  }
+  g.position.copy(pos);
+  scene.add(g);
+  zombieBombs.push({ root: g, sway: Math.random() * Math.PI * 2 });
+}
+// 返回 true 表示这颗炸弹处理完了（要移除）
+function updateZombieBomb(b, dt, time) {
+  const p = b.root.position;
+  p.y -= 轰炸机.炸弹降速 * dt;                       // 降落伞慢降
+  b.sway += dt * 1.5;
+  p.x += Math.sin(b.sway) * 0.3 * dt; p.z += Math.cos(b.sway * 0.8) * 0.3 * dt;
+  b.root.rotation.y += dt * 0.6;
+  // 砸中坦克：炸掉一点血（在坦克里才算），小爆炸
+  if (tank) {
+    const dx = p.x - tank.root.position.x, dz = p.z - tank.root.position.z;
+    if (Math.hypot(dx, dz) < 3.4 && p.y < 3.2) {
+      effects.addExplosion(new THREE.Vector3(p.x, 1.5, p.z), 3.5);
+      playExplosion(); addShake(0.4 * 手感.屏幕震动);
+      if (inTank) damagePlayer(轰炸机.炸坦克伤害, time, tank.root.position);
+      return true;
+    }
+  }
+  // 落地：生成一堆僵尸
+  if (p.y <= 0.4) {
+    effects.addExplosion(new THREE.Vector3(p.x, 0.3, p.z), 3);
+    playExplosion();
+    for (let i = 0; i < 轰炸机.每弹僵尸; i++) {
+      const a = (i / 轰炸机.每弹僵尸) * Math.PI * 2, r = 1.5 + Math.random() * 2;
+      spawnDroppedZombie(new THREE.Vector3(p.x + Math.cos(a) * r, 0.5, p.z + Math.sin(a) * r));
+    }
+    return true;
+  }
+  return false;
+}
+
 const _tankTmp = new THREE.Vector3();
 function tryToggleTank() {
   if (state !== STATE.PLAYING || !tank) { aimToggle = !aimToggle; return; }   // 没坦克时 F 还是开镜
@@ -717,6 +769,8 @@ function updateTank(dt) {
     const targetHull = Math.atan2(mx, mz);
     t.root.rotation.y += Math.atan2(Math.sin(targetHull - t.root.rotation.y), Math.cos(targetHull - t.root.rotation.y)) * Math.min(1, dt * 3);
   }
+  // 玩家位置跟着坦克走（僵尸会围过来骚扰坦克，但打不掉血）
+  player.pos.x = pos.x; player.pos.z = pos.z;
   // 炮塔朝相机水平方向
   t.turret.rotation.y = y - t.root.rotation.y;
   t.update(dt);
@@ -1184,7 +1238,8 @@ function frame() {
       }
       const res = en.update(simDt, player.pos, activeLevel, enemies, i);
       if (res === false) { addCorpse(en); en.remove(); enemies.splice(i, 1); continue; }
-      if (res && res.didAttack > 0) damagePlayer(res.didAttack, time, en.root.position);
+      // 在坦克里普通僵尸打不掉血（僵尸只是骚扰）
+      if (res && res.didAttack > 0 && !inTank) damagePlayer(res.didAttack, time, en.root.position);
       en.faceBar(camera);
     }
 
@@ -1202,7 +1257,11 @@ function frame() {
       const bm = bombers[i];
       if (bm.dead) { bm.remove(); bombers.splice(i, 1); continue; }
       const res = bm.update(simDt, player.pos);
-      if (res && res.drop) spawnDroppedZombie(res.drop);
+      if (res && res.drop) spawnZombieBomb(res.drop);
+    }
+    // 僵尸炸弹（降落伞慢降；落地生成一堆僵尸，砸中坦克炸掉点血）
+    for (let i = zombieBombs.length - 1; i >= 0; i--) {
+      if (updateZombieBomb(zombieBombs[i], simDt, time)) { zombieBombs[i].root.parent && scene.remove(zombieBombs[i].root); zombieBombs.splice(i, 1); }
     }
     if (tank && !inTank) tank.update(dt);
     // 友军坦克提示
@@ -1396,6 +1455,8 @@ window.__game = {
   // 测试：直接撤入军民要塞打第七波（超大图）
   forceFortress() { if (boss) { boss.remove(); boss = null; } bossActive = false; wave = 军营.波数; transitionToFortress(); startNextWave(); return { biome: scene._biome, wave, size: activeLevel.size, far: camera.far, bombers: bombers.length, tank: !!tank }; },
   get bomberCount() { return bombers.length; },
+  get zombieBombCount() { return zombieBombs.length; },
+  spawnTestBomb(x, z, y) { spawnZombieBomb(new THREE.Vector3(x, y ?? 17, z)); return zombieBombs.length; },
   skillState() { return abilities.state(); },
   useFreeze() { return abilities.useFreeze(enemies); },
   useIce() { return abilities.useIce(player); },
