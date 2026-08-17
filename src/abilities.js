@@ -8,8 +8,9 @@ import { 技能 } from './config/gameplay.js';
  *  V 温感震撼弹：扔出后锁定附近僵尸(红线)，各造成 45 伤害
  */
 export class Abilities {
-  constructor(scene, camera, effects) {
+  constructor(scene, camera, effects, onDamage) {
     this.scene = scene; this.camera = camera; this.effects = effects;
+    this.onDamage = onDamage || (() => {});
     this.freezeAmmo = 技能.冷冻发射器.弹数;
     this.freezeCd = 0; this.iceCd = 0; this.shockCd = 0;
     this.patches = [];    // 冰面 {mesh,pos,r,life}
@@ -90,6 +91,7 @@ export class Abilities {
       const hy = (en.flying ? c.y : 1.0 * en.scaleFactor);
       this._redLine(pos.clone(), new THREE.Vector3(c.x, hy, c.z));
       en.takeDamage(cfg.伤害, new THREE.Vector3(c.x - pos.x, 0, c.z - pos.z).normalize(), this.effects, new THREE.Vector3(c.x, hy, c.z));
+      this.onDamage(cfg.伤害);
     }
     this.effects.addExplosion(pos, 3);
   }

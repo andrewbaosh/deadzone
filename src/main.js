@@ -29,7 +29,7 @@ import { RifleBoss } from './rifleBoss.js';
 import { Bomber } from './bomber.js';
 import { Tank } from './tank.js';
 import { Abilities } from './abilities.js';
-import { BOSS, 沙漠, 步枪Boss, 军营, 要塞, 轰炸机, 坦克, 技能 } from './config/gameplay.js';
+import { BOSS, 沙漠, 步枪Boss, 军营, 要塞, 轰炸机, 坦克, 技能, 支援 } from './config/gameplay.js';
 
 /* ============ 渲染基础 ============ */
 const canvas = document.getElementById('game');
@@ -102,7 +102,7 @@ const effects = new Effects(scene, camera);
 const extraction = new Extraction(scene);
 const pickups = new Pickups(scene);
 const minimap = new Minimap(level);
-const abilities = new Abilities(scene, camera, effects);
+const abilities = new Abilities(scene, camera, effects, earnDamage);
 const raycaster = new THREE.Raycaster();
 
 let enemies = [];
@@ -122,6 +122,13 @@ let state = STATE.MENU;
 let score = 0;
 let wave = 0;
 let kills = 0;
+let 伤害积分 = 0;               // 累计对生物造成的伤害，用来换召唤支援
+function earnDamage(d) { if (d > 0) 伤害积分 += d; }
+// 召唤支援：正在下落的打击体 + 炮兵齐射排队的炮弹 + 目标预警圈
+let strikeProjectiles = [];
+let artilleryShells = [];
+let strikeMarkers = [];
+let callInOpen = false;         // F5 支援界面是否打开（打开时冻结模拟）
 let aiming = false;
 
 // 波次调度
@@ -180,6 +187,7 @@ const hud = {
   skZ: el('sk-z'), skX: el('sk-x'), skV: el('sk-v'),
   skZcd: el('sk-z').querySelector('.sk-cd'), skXcd: el('sk-x').querySelector('.sk-cd'), skVcd: el('sk-v').querySelector('.sk-cd'),
   skZnum: el('sk-z').querySelector('.sk-num'),
+  dmgPoints: el('dmg-points'),
 };
 
 function setCenterMsg(html, show = true) {
@@ -212,8 +220,8 @@ document.addEventListener('pointerlockchange', () => {
     if (声音.开背景音乐) startMusic();
     if (音效氛围.环境drone) startAmbient();
   } else {
-    if (state === STATE.PLAYING) {
-      // 暂停：停掉音乐 + 环境，弹出暂停菜单
+    if (state === STATE.PLAYING && !callInOpen) {
+      // 暂停：停掉音乐 + 环境，弹出暂停菜单（打开支援界面时不算暂停）
       stopMusic();
       stopAmbient();
       pauseMenu.style.display = 'flex';
@@ -235,6 +243,9 @@ document.addEventListener('visibilitychange', () => {
 /* ============ 输入 ============ */
 document.addEventListener('keydown', (e) => {
   if (state !== STATE.PLAYING) return;
+  // F5：召唤支援界面（伤害积分换打击）
+  if (e.code === 'F5') { e.preventDefault(); if (callInOpen) closeCallIn(); else openCallIn(); return; }
+  if (callInOpen) { if (e.code === 'Escape') { e.preventDefault(); if (ciStep === 'target') backToCiMenu(); else closeCallIn(); } return; }
   player.onKey(e.code, true);
   if (e.code === 'KeyR') weapons.startReload();
   // CS 风格选枪：1步枪 2手枪 3霰弹 4火箭 5狙击 6加特林
@@ -306,6 +317,8 @@ function startFreshGame() {
   for (const zb of zombieBombs) scene.remove(zb.root); zombieBombs = [];
   if (tank) { tank.remove(); tank = null; }
   abilities.reset();
+  clearStrikes(); 伤害积分 = 0;
+  if (callInOpen) closeCallIn();
   inTank = false; hud.tankHint.style.display = 'none';
   hud.crosshair.classList.remove('tank');
   // 回到小镇地图（上一局可能停在沙漠/军营/要塞）
@@ -724,6 +737,213 @@ function updateZombieBomb(b, dt, time) {
   return false;
 }
 
+/* ============ 伤害积分召唤支援（打击体/齐射/区域效果） ============ */
+function markerRing(pos, color, r) {
+  const geo = new THREE.RingGeometry(Math.max(0.5, r * 0.9), r, 44);
+  const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.6, side: THREE.DoubleSide, depthWrite: false }));
+  m.rotation.x = -Math.PI / 2; m.position.set(pos.x, 0.06, pos.z);
+  scene.add(m);
+  const mk = { mesh: m, life: 8 };
+  strikeMarkers.push(mk);
+  return mk;
+}
+function spawnStrikeProjectile(kind, pos, speed, marker, cfg) {
+  const g = new THREE.Group();
+  if (kind === 'nuke') {
+    g.add(new THREE.Mesh(new THREE.SphereGeometry(0.8, 12, 10), new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.6, metalness: 0.4 })));
+    const f = new THREE.Mesh(new THREE.ConeGeometry(0.6, 1.0, 6), new THREE.MeshStandardMaterial({ color: 0x1a1a1a })); f.position.y = -0.9; f.rotation.x = Math.PI; g.add(f);
+    g.add(new THREE.Mesh(new THREE.SphereGeometry(0.35, 8, 6), new THREE.MeshBasicMaterial({ color: 0xffcc44, toneMapped: false })));
+  } else {
+    const col = kind === 'freeze' ? 0x8fd8f0 : 0x992222;
+    g.add(new THREE.Mesh(new THREE.CylinderGeometry(0.18, 0.22, 1.4, 10), new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.5, metalness: 0.5 })));
+    const nose = new THREE.Mesh(new THREE.ConeGeometry(0.22, 0.5, 10), new THREE.MeshStandardMaterial({ color: col, emissive: col, emissiveIntensity: 0.4 })); nose.position.y = -0.9; nose.rotation.x = Math.PI; g.add(nose);
+  }
+  g.position.set(pos.x, 62, pos.z);
+  scene.add(g);
+  strikeProjectiles.push({ kind, mesh: g, target: pos.clone(), speed, marker, cfg });
+}
+function fireStrike(type, pos) {
+  const cfg = 支援[type];
+  伤害积分 = Math.max(0, 伤害积分 - cfg.花费);
+  if (type === '炮兵齐射') {
+    const mk = markerRing(pos, 0xffaa33, cfg.散布); mk.life = cfg.时长 + 1;
+    for (let i = 0; i < cfg.弹数; i++) {
+      const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * cfg.散布;
+      artilleryShells.push({ land: new THREE.Vector3(pos.x + Math.cos(a) * r, 0, pos.z + Math.sin(a) * r), t: 0.3 + (i / cfg.弹数) * cfg.时长 + Math.random() * 0.3 });
+    }
+    flashWaveBanner('📡 炮兵齐射 已呼叫！');
+  } else if (type === '制导导弹') {
+    spawnStrikeProjectile('guided', pos, cfg.降速, markerRing(pos, 0xff3020, cfg.半径), cfg); flashWaveBanner('📡 制导导弹 已呼叫！');
+  } else if (type === '核弹') {
+    spawnStrikeProjectile('nuke', pos, cfg.降速, markerRing(pos, 0xff2200, cfg.半径), cfg); flashWaveBanner('☢ 核弹 已呼叫！离远点！');
+  } else if (type === '冷冻弹药') {
+    spawnStrikeProjectile('freeze', pos, cfg.降速, markerRing(pos, 0x8fd8f0, cfg.半径), cfg); flashWaveBanner('❄ 冷冻弹药 已呼叫！');
+  }
+}
+function updateStrikes(dt) {
+  // 下落打击体
+  for (let i = strikeProjectiles.length - 1; i >= 0; i--) {
+    const s = strikeProjectiles[i];
+    s.mesh.position.y -= s.speed * dt;
+    if (s.mesh.position.y <= 0.5) {
+      detonateStrike(s.kind, s.target, s.cfg);
+      scene.remove(s.mesh);
+      if (s.marker) s.marker.life = 0;
+      strikeProjectiles.splice(i, 1);
+    }
+  }
+  // 炮兵齐射：逐发落地
+  for (let i = artilleryShells.length - 1; i >= 0; i--) {
+    const sh = artilleryShells[i]; sh.t -= dt;
+    if (sh.t <= 0) {
+      const c = 支援.炮兵齐射;
+      effects.addExplosion(sh.land, c.单发半径); playExplosion(); addShake(0.18 * 手感.屏幕震动);
+      areaDamage(sh.land, c.单发半径, c.单发伤害);
+      artilleryShells.splice(i, 1);
+    }
+  }
+  // 预警圈
+  for (let i = strikeMarkers.length - 1; i >= 0; i--) {
+    const mk = strikeMarkers[i]; mk.life -= dt;
+    mk.mesh.material.opacity = 0.35 + 0.35 * Math.abs(Math.sin(mk.life * 8));
+    if (mk.life <= 0) { scene.remove(mk.mesh); mk.mesh.geometry.dispose(); mk.mesh.material.dispose(); strikeMarkers.splice(i, 1); }
+  }
+}
+function detonateStrike(kind, pos, cfg) {
+  if (kind === 'nuke') {
+    effects.addExplosion(pos, cfg.半径 * 0.5); effects.addExplosion(new THREE.Vector3(pos.x, 4, pos.z), cfg.半径 * 0.35);
+    playExplosion(); addShake(1.0 * 手感.屏幕震动); flashScreen(0.85);
+    killArea(pos, cfg.半径);
+  } else if (kind === 'guided') {
+    effects.addExplosion(pos, cfg.半径 * 0.4); playExplosion(); addShake(0.7 * 手感.屏幕震动); flashScreen(0.4);
+    killArea(pos, cfg.半径);
+  } else if (kind === 'freeze') {
+    effects.addExplosion(pos, cfg.半径 * 0.3); playExplosion(); addShake(0.4 * 手感.屏幕震动);
+    freezeArea(pos, cfg.半径, cfg.冻结时长);
+  }
+}
+function killArea(pos, r) {
+  const r2 = r * r;
+  for (const en of enemies) {
+    if (en.dead) continue;
+    if ((en.root.position.x - pos.x) ** 2 + (en.root.position.z - pos.z) ** 2 <= r2) { en.die(effects); kills++; }
+  }
+  if (boss && !boss.dead && (boss.root.position.x - pos.x) ** 2 + (boss.root.position.z - pos.z) ** 2 <= r2) boss.takeDamage(9e9, false, effects);
+  for (const bm of bombers) if (!bm.dead && (bm.root.position.x - pos.x) ** 2 + (bm.root.position.z - pos.z) ** 2 <= r2) bm.takeDamage(9e9, false, effects);
+}
+function freezeArea(pos, r, dur) {
+  const r2 = r * r;
+  for (const en of enemies) {
+    if (en.dead) continue;
+    if ((en.root.position.x - pos.x) ** 2 + (en.root.position.z - pos.z) ** 2 <= r2) en.freeze(dur);
+  }
+}
+function areaDamage(pos, r, dmg) {
+  const r2 = r * r;
+  for (const en of enemies) {
+    if (en.dead) continue;
+    if ((en.root.position.x - pos.x) ** 2 + (en.root.position.z - pos.z) ** 2 <= r2) {
+      const killed = en.takeDamage(dmg, new THREE.Vector3(0, 0, 1), effects, en.root.position.clone());
+      if (killed) onKill(en, false);
+    }
+  }
+}
+function clearStrikes() {
+  for (const s of strikeProjectiles) scene.remove(s.mesh);
+  for (const mk of strikeMarkers) { scene.remove(mk.mesh); mk.mesh.geometry.dispose(); mk.mesh.material.dispose(); }
+  strikeProjectiles = []; artilleryShells = []; strikeMarkers = [];
+}
+
+/* ============ F5 召唤支援界面（菜单 + 小地图长按锁定落点） ============ */
+const ciEl = el('callin'), ciMenu = el('callin-menu'), ciTarget = el('callin-target'),
+  ciCards = el('ci-cards'), ciPoints = el('ci-points'), ciTName = el('ci-tname'),
+  ciMap = el('callin-map'), ciCtx = ciMap.getContext('2d');
+let ciStep = 'menu', ciType = null, ciHolding = false, ciHold = 0, ciRaf = 0, ciLastT = 0;
+const ciCursor = { x: 260, y: 260 };
+const CI_ORDER = ['炮兵齐射', '制导导弹', '核弹', '冷冻弹药'];
+const CI_DESC = { 炮兵齐射: '多发炮弹覆盖目标区', 制导导弹: '30m 内所有生物立即死亡', 核弹: '慢降 · 45m 内立即死亡', 冷冻弹药: '30m 内全部冻住（除你）' };
+
+function openCallIn() {
+  if (state !== STATE.PLAYING || callInOpen) return;
+  callInOpen = true;
+  document.exitPointerLock();
+  ciStep = 'menu'; ciHolding = false; ciHold = 0;
+  buildCiCards();
+  ciMenu.style.display = ''; ciTarget.style.display = 'none';
+  ciEl.classList.add('show');
+}
+function closeCallIn() {
+  callInOpen = false; ciHolding = false;
+  ciEl.classList.remove('show');
+  cancelAnimationFrame(ciRaf); ciRaf = 0;
+  if (state === STATE.PLAYING) canvas.requestPointerLock();
+}
+function buildCiCards() {
+  ciPoints.textContent = Math.floor(伤害积分);
+  ciCards.innerHTML = '';
+  for (const type of CI_ORDER) {
+    const cfg = 支援[type], afford = 伤害积分 >= cfg.花费;
+    const card = document.createElement('div');
+    card.className = 'ci-card' + (afford ? '' : ' disabled');
+    card.innerHTML = `<div class="cn">${cfg.名字}</div><div class="cd">${CI_DESC[type]}</div><div class="cc">${cfg.花费} 伤害</div>`;
+    if (afford) card.addEventListener('click', () => selectCiStrike(type));
+    ciCards.appendChild(card);
+  }
+}
+function selectCiStrike(type) {
+  if (伤害积分 < 支援[type].花费) return;
+  ciType = type; ciStep = 'target'; ciHold = 0; ciHolding = false;
+  ciTName.textContent = 支援[type].名字;
+  ciMenu.style.display = 'none'; ciTarget.style.display = '';
+  ciCursor.x = ciMap.width / 2; ciCursor.y = ciMap.height / 2;
+  ciLastT = 0;
+  renderCiMap();
+}
+function backToCiMenu() { ciStep = 'menu'; ciHolding = false; cancelAnimationFrame(ciRaf); ciRaf = 0; buildCiCards(); ciMenu.style.display = ''; ciTarget.style.display = 'none'; }
+function ciViewR() { return Math.min(activeLevel.size, 150); }
+function ciMapToWorld(mx, mz) { const S = ciMap.width, k = S / (2 * ciViewR()); return new THREE.Vector3(player.pos.x + (mx - S / 2) / k, 0, player.pos.z + (mz - S / 2) / k); }
+function ciW2M(wx, wz) { const S = ciMap.width, k = S / (2 * ciViewR()); return [S / 2 + (wx - player.pos.x) * k, S / 2 + (wz - player.pos.z) * k]; }
+function renderCiMap() {
+  const ctx = ciCtx, S = ciMap.width, vr = ciViewR(), k = S / (2 * vr);
+  // 长按进度（按真实时间，任何帧率下都是 0.6 秒锁定）
+  const now = performance.now();
+  const d = ciLastT ? Math.min(0.1, (now - ciLastT) / 1000) : 0; ciLastT = now;
+  if (ciHolding) { ciHold += d; if (ciHold >= 0.6) { confirmCiTarget(); return; } }
+  ctx.clearRect(0, 0, S, S); ctx.fillStyle = '#141c26'; ctx.fillRect(0, 0, S, S);
+  ctx.fillStyle = 'rgba(150,160,180,.45)';
+  for (const c of activeLevel.colliders) {
+    if (c.max.y <= 1.0) continue;
+    const mx = (c.min.x + c.max.x) / 2, mz = (c.min.z + c.max.z) / 2;
+    if (Math.abs(mx - player.pos.x) > vr + 40 || Math.abs(mz - player.pos.z) > vr + 40) continue;
+    const [x0, z0] = ciW2M(c.min.x, c.min.z), [x1, z1] = ciW2M(c.max.x, c.max.z);
+    ctx.fillRect(x0, z0, Math.max(1, x1 - x0), Math.max(1, z1 - z0));
+  }
+  ctx.fillStyle = '#ff3b30';
+  for (const e of enemies) { if (e.dead) continue; const [x, z] = ciW2M(e.root.position.x, e.root.position.z); ctx.beginPath(); ctx.arc(x, z, 2.5, 0, Math.PI * 2); ctx.fill(); }
+  if (boss && !boss.dead) { const [x, z] = ciW2M(boss.root.position.x, boss.root.position.z); ctx.fillStyle = '#ff6a5a'; ctx.beginPath(); ctx.arc(x, z, 6, 0, Math.PI * 2); ctx.fill(); }
+  ctx.fillStyle = '#ffaa44';
+  for (const bm of bombers) { if (bm.dead) continue; const [x, z] = ciW2M(bm.root.position.x, bm.root.position.z); ctx.fillRect(x - 3, z - 3, 6, 6); }
+  const [px, pz] = ciW2M(player.pos.x, player.pos.z);
+  ctx.save(); ctx.translate(px, pz); ctx.rotate(-player.yaw); ctx.fillStyle = '#8fefc0'; ctx.beginPath(); ctx.moveTo(0, -7); ctx.lineTo(5, 6); ctx.lineTo(-5, 6); ctx.closePath(); ctx.fill(); ctx.restore();
+  // AOE 预览 + 光标
+  const cfg = 支援[ciType], aoeR = (ciType === '炮兵齐射' ? cfg.散布 : cfg.半径) * k;
+  ctx.strokeStyle = ciType === '冷冻弹药' ? '#8fd8f0' : (ciType === '核弹' ? '#ff2200' : '#ff6633');
+  ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(ciCursor.x, ciCursor.y, aoeR, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(ciCursor.x - 9, ciCursor.y); ctx.lineTo(ciCursor.x + 9, ciCursor.y); ctx.moveTo(ciCursor.x, ciCursor.y - 9); ctx.lineTo(ciCursor.x, ciCursor.y + 9); ctx.stroke();
+  if (ciHold > 0) { ctx.strokeStyle = '#ffe08a'; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(ciCursor.x, ciCursor.y, 18, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, ciHold / 0.6)); ctx.stroke(); }
+  if (ciStep === 'target' && callInOpen) ciRaf = requestAnimationFrame(renderCiMap);
+}
+function confirmCiTarget() {
+  const world = ciMapToWorld(ciCursor.x, ciCursor.y);
+  const b = activeLevel.size - 4; world.x = Math.max(-b, Math.min(b, world.x)); world.z = Math.max(-b, Math.min(b, world.z));
+  fireStrike(ciType, world);
+  closeCallIn();
+}
+ciMap.addEventListener('mousemove', (e) => { const r = ciMap.getBoundingClientRect(); ciCursor.x = (e.clientX - r.left) * (ciMap.width / r.width); ciCursor.y = (e.clientY - r.top) * (ciMap.height / r.height); });
+ciMap.addEventListener('mousedown', (e) => { if (e.button === 0) { ciHolding = true; ciHold = 0.0001; } });
+window.addEventListener('mouseup', (e) => { if (e.button === 0 && ciStep === 'target' && ciHold < 0.6) { ciHolding = false; ciHold = 0; } });
+ciMap.addEventListener('contextmenu', (e) => { e.preventDefault(); backToCiMenu(); });
+
 const _tankTmp = new THREE.Vector3();
 function tryToggleTank() {
   if (state !== STATE.PLAYING || !tank) { aimToggle = !aimToggle; return; }   // 没坦克时 F 还是开镜
@@ -836,6 +1056,8 @@ function updateWaypoint() {
 
 /* ============ 火箭筒 ============ */
 function addShake(a) { shakeAmount = Math.min(0.9, shakeAmount + a); }
+const _flashEl = el('screen-flash');
+function flashScreen(i) { _flashEl.style.transition = 'none'; _flashEl.style.opacity = String(i); requestAnimationFrame(() => { _flashEl.style.transition = 'opacity .55s ease-out'; _flashEl.style.opacity = '0'; }); }
 
 function spawnRocket(shot, cfgOverride) {
   // 用当前武器的配置（火箭筒 / 追踪导弹各自的弹速/追踪/爆炸）；坦克炮传 cfgOverride
@@ -854,6 +1076,7 @@ function explode(center, direct, time, cfg = 武器Config('火箭筒')) {
   for (const en of enemies) {
     const bonus = (en === direct) ? cfg.直接伤害 : 0;
     const r = en.applyBlast(center, cfg.爆炸半径, cfg.爆炸伤害, cfg.冲击力, effects, bonus);
+    if (r) earnDamage(cfg.爆炸伤害 * 0.6 + bonus);
     if (r && r.killed) onKill(en, false);
   }
   // 对空中的僵尸轰炸机施加爆炸伤害（3D 距离）
@@ -861,7 +1084,7 @@ function explode(center, direct, time, cfg = 武器Config('火箭筒')) {
     if (bm.dead) continue;
     const d = bm.root.position.distanceTo(center);
     const R = cfg.爆炸半径 + 2;
-    if (d < R) bm.takeDamage((bm === direct ? cfg.直接伤害 : 0) + cfg.爆炸伤害 * Math.max(0.25, 1 - d / R), false, effects);
+    if (d < R) { const bd = (bm === direct ? cfg.直接伤害 : 0) + cfg.爆炸伤害 * Math.max(0.25, 1 - d / R); bm.takeDamage(bd, false, effects); earnDamage(bd); }
   }
 
   // 自己在范围内：受伤 + 被弹开（可以玩火箭跳）
@@ -910,7 +1133,7 @@ function processShot(shot) {
     const bmb = hit.object.userData.bomber;
     if (bmb && !bmb.dead) {
       const dmg = shot.damage;
-      bmb.takeDamage(dmg, false, effects);
+      bmb.takeDamage(dmg, false, effects); earnDamage(dmg);
       effects.addSparks(hit.point, dir.clone().negate(), 6, 0xffcc66);
       shot.onHit(false); showHitmarker(false);
       if (手感.显示伤害数字) effects.addFloatingNumber(hit.point, String(Math.round(dmg)), 'hit');
@@ -921,7 +1144,7 @@ function processShot(shot) {
     if (bo && !bo.dead) {
       const isHead = hit.object === bo.head;
       const dmg = shot.damage * (isHead ? shot.headMul : 1);
-      bo.takeDamage(dmg, isHead, effects);
+      bo.takeDamage(dmg, isHead, effects); earnDamage(dmg * (isHead ? bo.headMul : 1));
       effects.addSparks(hit.point, dir.clone().negate(), isHead ? 10 : 6, isHead ? 0xff6644 : 0x88aa44);
       shot.onHit(isHead);
       showHitmarker(isHead);
@@ -936,7 +1159,7 @@ function processShot(shot) {
       const isHead = hit.object === en.head;
       const dmg = shot.damage * (isHead ? shot.headMul : 1);
       const fromDir = dir.clone(); fromDir.y = 0; fromDir.normalize();
-      const killed = en.takeDamage(dmg, fromDir, effects, hit.point);
+      const killed = en.takeDamage(dmg, fromDir, effects, hit.point); earnDamage(dmg);
       effects.addBloodSpray(hit.point, dir, isHead ? 12 : 7);   // 被打中喷血（沿子弹方向）
       effects.addSparks(hit.point, dir.clone().negate(), isHead ? 4 : 2, isHead ? 0xff6644 : 0xaa3322);
       shot.onHit(isHead);
@@ -1138,7 +1361,7 @@ function frame() {
   statsPanel.begin();
   quality.sample(dt);   // 前两秒自动测帧率、必要时降档
 
-  if (state === STATE.PLAYING) {
+  if (state === STATE.PLAYING && !callInOpen) {
     // 换枪时自动收镜
     if (weapons.current !== prevWeaponName) { aimToggle = false; prevWeaponName = weapons.current; }
 
@@ -1277,6 +1500,8 @@ function frame() {
     // 技能（冰冻）：更新特效/冷却 + HUD
     abilities.update(simDt, enemies, player);
     updateSkillsHud();
+    updateStrikes(simDt);
+    hud.dmgPoints.textContent = Math.floor(伤害积分);
 
     // 掉落拾取
     const got = pickups.update(dt, player.pos);
@@ -1456,6 +1681,10 @@ window.__game = {
   forceFortress() { if (boss) { boss.remove(); boss = null; } bossActive = false; wave = 军营.波数; transitionToFortress(); startNextWave(); return { biome: scene._biome, wave, size: activeLevel.size, far: camera.far, bombers: bombers.length, tank: !!tank }; },
   get bomberCount() { return bombers.length; },
   get zombieBombCount() { return zombieBombs.length; },
+  get damagePoints() { return Math.floor(伤害积分); },
+  grantPoints(n) { 伤害积分 += n; return 伤害积分; },
+  fireStrikeAt(type, x, z) { fireStrike(type, new THREE.Vector3(x, 0, z)); return { proj: strikeProjectiles.length, shells: artilleryShells.length, points: Math.floor(伤害积分) }; },
+  detonateNow(kind, x, z) { const map = { 制导导弹: 'guided', 核弹: 'nuke', 冷冻弹药: 'freeze' }; detonateStrike(map[kind], new THREE.Vector3(x, 0, z), 支援[kind]); return true; },
   spawnTestBomb(x, z, y) { spawnZombieBomb(new THREE.Vector3(x, y ?? 17, z)); return zombieBombs.length; },
   skillState() { return abilities.state(); },
   useFreeze() { return abilities.useFreeze(enemies); },

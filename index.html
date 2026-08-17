@@ -236,7 +236,39 @@
       <div id="weapon-name">步枪 AR-15</div>
       <div id="weapon-hint">1-8 换武器 · Z 冷冻发射器 X 冰罐 V 震撼弹 · Q 切上一把 · 右键/F 开镜 · R 换弹 · M 音乐</div>
     </div>
+    <div id="screen-flash" style="position:fixed;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:30;transition:opacity .55s ease-out;"></div>
+    <div id="callin">
+      <div id="callin-menu">
+        <div class="ci-title">召唤支援 &nbsp;·&nbsp; 伤害积分 <span id="ci-points">0</span></div>
+        <div id="ci-cards"></div>
+        <div class="ci-tip">点击一种支援（伤害积分足够才可选） · ESC 关闭</div>
+      </div>
+      <div id="callin-target" style="display:none;">
+        <div class="ci-title">锁定目标 · <span id="ci-tname"></span></div>
+        <canvas id="callin-map" width="520" height="520"></canvas>
+        <div class="ci-tip">在地图上<b>长按</b>锁定落点 · 右键/ESC 返回</div>
+      </div>
+    </div>
+    <style>
+      #callin{display:none;position:fixed;inset:0;z-index:40;background:rgba(6,10,16,.82);
+        flex-direction:column;align-items:center;justify-content:center;color:#dbe7f2;font-family:inherit;}
+      #callin.show{display:flex;}
+      #callin .ci-title{font-size:20px;font-weight:800;letter-spacing:2px;margin-bottom:16px;text-shadow:0 2px 6px #000;}
+      #callin #ci-points{color:#ffd24a;}
+      #ci-cards{display:flex;gap:14px;flex-wrap:wrap;justify-content:center;max-width:760px;}
+      #ci-cards .ci-card{width:170px;padding:16px;border-radius:12px;background:rgba(20,32,44,.9);
+        border:2px solid rgba(120,180,230,.4);cursor:pointer;transition:transform .1s,border-color .1s;text-align:center;}
+      #ci-cards .ci-card:hover{transform:translateY(-3px);border-color:rgba(150,220,255,.9);}
+      #ci-cards .ci-card .cn{font-size:17px;font-weight:800;margin-bottom:6px;}
+      #ci-cards .ci-card .cd{font-size:12px;opacity:.85;line-height:1.4;min-height:34px;}
+      #ci-cards .ci-card .cc{margin-top:8px;font-weight:800;color:#ffd24a;}
+      #ci-cards .ci-card.disabled{opacity:.4;cursor:not-allowed;border-color:rgba(120,120,120,.4);}
+      #ci-cards .ci-card.disabled:hover{transform:none;border-color:rgba(120,120,120,.4);}
+      #callin .ci-tip{margin-top:16px;font-size:13px;opacity:.8;}
+      #callin-map{border-radius:10px;border:2px solid rgba(120,180,230,.5);background:#0e1620;box-shadow:0 6px 24px rgba(0,0,0,.6);cursor:crosshair;}
+    </style>
     <div id="tank-hint" style="display:none;position:absolute;left:50%;bottom:22%;transform:translateX(-50%);z-index:12;padding:6px 16px;border-radius:6px;background:rgba(20,26,18,.72);border:1px solid rgba(150,200,120,.5);color:#cfe8b0;font-weight:700;letter-spacing:1px;text-shadow:0 1px 3px #000;">按 F 上坦克</div>
+    <div id="dmg-points-wrap" style="position:absolute;left:16px;bottom:126px;z-index:12;font-weight:800;letter-spacing:1px;color:#ffd24a;text-shadow:0 1px 3px #000;font-size:13px;">支援积分 <span id="dmg-points">0</span> <span style="color:#9fd0ff;font-weight:600;">· F5 召唤</span></div>
     <div id="skills">
       <div class="skill" id="sk-z"><div class="sk-cd"></div><div class="sk-inner"><span class="sk-key">Z</span><span class="sk-name">冷冻发射器</span></div><span class="sk-num">6</span></div>
       <div class="skill" id="sk-x"><div class="sk-cd"></div><div class="sk-inner"><span class="sk-key">X</span><span class="sk-name">冰罐</span></div></div>
