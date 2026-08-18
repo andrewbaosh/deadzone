@@ -243,8 +243,8 @@ document.addEventListener('visibilitychange', () => {
 /* ============ 输入 ============ */
 document.addEventListener('keydown', (e) => {
   if (state !== STATE.PLAYING) return;
-  // F5 或 G：召唤支援界面（Mac 上 F5 常是系统键，用 G 更稳）
-  if (e.code === 'F5' || e.code === 'KeyG') { e.preventDefault(); if (callInOpen) closeCallIn(); else openCallIn(); return; }
+  // G：召唤支援界面
+  if (e.code === 'KeyG') { e.preventDefault(); if (callInOpen) closeCallIn(); else openCallIn(); return; }
   if (callInOpen) { if (e.code === 'Escape') { e.preventDefault(); if (ciStep === 'target') backToCiMenu(); else closeCallIn(); } return; }
   player.onKey(e.code, true);
   if (e.code === 'KeyR') weapons.startReload();
