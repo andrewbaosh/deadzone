@@ -243,8 +243,8 @@ document.addEventListener('visibilitychange', () => {
 /* ============ 输入 ============ */
 document.addEventListener('keydown', (e) => {
   if (state !== STATE.PLAYING) return;
-  // F5：召唤支援界面（伤害积分换打击）
-  if (e.code === 'F5') { e.preventDefault(); if (callInOpen) closeCallIn(); else openCallIn(); return; }
+  // F5 或 G：召唤支援界面（Mac 上 F5 常是系统键，用 G 更稳）
+  if (e.code === 'F5' || e.code === 'KeyG') { e.preventDefault(); if (callInOpen) closeCallIn(); else openCallIn(); return; }
   if (callInOpen) { if (e.code === 'Escape') { e.preventDefault(); if (ciStep === 'target') backToCiMenu(); else closeCallIn(); } return; }
   player.onKey(e.code, true);
   if (e.code === 'KeyR') weapons.startReload();
@@ -267,7 +267,7 @@ document.addEventListener('keydown', (e) => {
   if (e.code === 'KeyM') { const on = toggleMusic(); flashWaveBanner(on ? '♪ 音乐开' : '♪ 音乐关'); }
   if (e.code === 'F7') { quality.cycleTier(); flashWaveBanner('画质 ' + quality.tierName); }
   if (e.code === 'F8') { statsPanel.toggle(); }
-  if (['KeyW','KeyA','KeyS','KeyD','Space','KeyR','KeyQ','KeyE','KeyF','KeyM','KeyZ','KeyX','KeyV','Digit1','Digit2','Digit3','Digit4','Digit5','Digit6','Digit7','Digit8'].includes(e.code)) e.preventDefault();
+  if (['KeyW','KeyA','KeyS','KeyD','Space','KeyR','KeyQ','KeyE','KeyF','KeyM','KeyZ','KeyX','KeyV','KeyG','Digit1','Digit2','Digit3','Digit4','Digit5','Digit6','Digit7','Digit8'].includes(e.code)) e.preventDefault();
 });
 document.addEventListener('keyup', (e) => player.onKey(e.code, false));
 
