@@ -241,12 +241,12 @@
       <div id="callin-menu">
         <div class="ci-title">召唤支援 &nbsp;·&nbsp; 你的伤害积分 <span id="ci-points">0</span></div>
         <div id="ci-cards"></div>
-        <div class="ci-tip">打敌人/Boss 攒伤害积分 → 够了卡片就会亮、可点 · ESC 关闭</div>
+        <div class="ci-tip">按 <b>1 / 2 / 3 / 4</b> 选择支援（打敌人攒伤害积分） · 然后用准星瞄地面、空格召唤 · ESC 关闭</div>
       </div>
       <div id="callin-target" style="display:none;">
         <div class="ci-title">锁定目标 · <span id="ci-tname"></span></div>
         <canvas id="callin-map" width="520" height="520"></canvas>
-        <div class="ci-tip">在地图上<b>长按</b>锁定落点 · 右键/ESC 返回</div>
+        <div class="ci-tip">在地图上<b>点一下</b>选定落点召唤 · 右键/ESC 返回</div>
       </div>
     </div>
     <style>
@@ -259,6 +259,8 @@
       #ci-cards .ci-card{width:170px;padding:16px;border-radius:12px;background:rgba(20,32,44,.9);
         border:2px solid rgba(120,180,230,.4);cursor:pointer;transition:transform .1s,border-color .1s;text-align:center;}
       #ci-cards .ci-card:hover{transform:translateY(-3px);border-color:rgba(150,220,255,.9);}
+      #ci-cards .ci-card .ci-key{font-size:22px;font-weight:800;color:#9fd0ff;margin-bottom:4px;}
+      #ci-cards .ci-card.disabled .ci-key{color:#8a8a8a;}
       #ci-cards .ci-card .cn{font-size:17px;font-weight:800;margin-bottom:6px;}
       #ci-cards .ci-card .cd{font-size:12px;opacity:.85;line-height:1.4;min-height:34px;}
       #ci-cards .ci-card .cc{margin-top:8px;font-weight:800;color:#ffd24a;}

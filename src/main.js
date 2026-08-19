@@ -128,7 +128,9 @@ function earnDamage(d) { if (d > 0) 伤害积分 += d; }
 let strikeProjectiles = [];
 let artilleryShells = [];
 let strikeMarkers = [];
-let callInOpen = false;         // F5 支援界面是否打开（打开时冻结模拟）
+let callInOpen = false;         // G 支援菜单是否打开（打开时冻结模拟）
+let aimingStrike = false;       // 是否正在用准星瞄地面选支援落点
+let pendingStrike = null;
 let aiming = false;
 
 // 波次调度
@@ -243,9 +245,23 @@ document.addEventListener('visibilitychange', () => {
 /* ============ 输入 ============ */
 document.addEventListener('keydown', (e) => {
   if (state !== STATE.PLAYING) return;
-  // G：召唤支援界面
-  if (e.code === 'KeyG') { e.preventDefault(); if (callInOpen) closeCallIn(); else openCallIn(); return; }
-  if (callInOpen) { if (e.code === 'Escape') { e.preventDefault(); if (ciStep === 'target') backToCiMenu(); else closeCallIn(); } return; }
+  // G：召唤支援（开菜单 / 取消瞄准）
+  if (e.code === 'KeyG') { e.preventDefault(); if (callInOpen) closeCallIn(); else if (aimingStrike) cancelAiming(); else openCallIn(); return; }
+  // 菜单打开：按 1/2/3/4 选支援，Esc 关闭（其他键屏蔽）
+  if (callInOpen) {
+    e.preventDefault();
+    if (e.code === 'Digit1') pickStrike(0);
+    else if (e.code === 'Digit2') pickStrike(1);
+    else if (e.code === 'Digit3') pickStrike(2);
+    else if (e.code === 'Digit4') pickStrike(3);
+    else if (e.code === 'Escape') closeCallIn();
+    return;
+  }
+  // 瞄准中：空格召唤，Esc 取消（其余键照常移动/看）
+  if (aimingStrike) {
+    if (e.code === 'Space') { e.preventDefault(); confirmAiming(); return; }
+    if (e.code === 'Escape') { cancelAiming(); return; }
+  }
   player.onKey(e.code, true);
   if (e.code === 'KeyR') weapons.startReload();
   // CS 风格选枪：1步枪 2手枪 3霰弹 4火箭 5狙击 6加特林
@@ -273,13 +289,14 @@ document.addEventListener('keyup', (e) => player.onKey(e.code, false));
 
 document.addEventListener('mousemove', (e) => {
   if (document.pointerLockElement !== canvas) return;
+  if (callInOpen) return;   // 支援菜单打开(冻结)时不转视角，避免松开后画面跳
   player.onMouseMove(e.movementX, e.movementY);
 });
 
 document.addEventListener('mousedown', (e) => {
   if (state === STATE.DEAD) return;
   if (document.pointerLockElement !== canvas) return;
-  if (e.button === 0) { mouseHeld = true; if (!inTank) weapons.setTrigger(true); }
+  if (e.button === 0) { if (aimingStrike) { confirmAiming(); return; } mouseHeld = true; if (!inTank) weapons.setTrigger(true); }
   if (e.button === 2) { rightHeld = true; }
 });
 document.addEventListener('mouseup', (e) => {
@@ -319,6 +336,7 @@ function startFreshGame() {
   abilities.reset();
   clearStrikes(); 伤害积分 = 0;
   if (callInOpen) closeCallIn();
+  if (aimingStrike) endAiming();
   inTank = false; hud.tankHint.style.display = 'none';
   hud.crosshair.classList.remove('tank');
   // 回到小镇地图（上一局可能停在沙漠/军营/要塞）
@@ -854,99 +872,82 @@ function clearStrikes() {
   strikeProjectiles = []; artilleryShells = []; strikeMarkers = [];
 }
 
-/* ============ F5 召唤支援界面（菜单 + 小地图长按锁定落点） ============ */
+/* ============ G 召唤支援：键盘选(1-4) + 准星瞄地面召唤（无鼠标也能用） ============ */
 const ciEl = el('callin'), ciMenu = el('callin-menu'), ciTarget = el('callin-target'),
-  ciCards = el('ci-cards'), ciPoints = el('ci-points'), ciTName = el('ci-tname'),
-  ciMap = el('callin-map'), ciCtx = ciMap.getContext('2d');
-let ciStep = 'menu', ciType = null, ciHolding = false, ciHold = 0, ciRaf = 0, ciLastT = 0;
-const ciCursor = { x: 260, y: 260 };
+  ciCards = el('ci-cards'), ciPoints = el('ci-points');
+ciTarget.style.display = 'none';   // 不再用小地图面板
 const CI_ORDER = ['炮兵齐射', '制导导弹', '核弹', '冷冻弹药'];
+const CI_KEYS = ['①', '②', '③', '④'];
 const CI_DESC = { 炮兵齐射: '多发炮弹覆盖目标区', 制导导弹: '30m 内所有生物立即死亡', 核弹: '慢降 · 45m 内立即死亡', 冷冻弹药: '30m 内全部冻住（除你）' };
 
 function openCallIn() {
-  if (state !== STATE.PLAYING || callInOpen) return;
-  callInOpen = true;
-  document.exitPointerLock();
-  ciStep = 'menu'; ciHolding = false; ciHold = 0;
+  if (state !== STATE.PLAYING || callInOpen || aimingStrike) return;
+  callInOpen = true;                 // 冻结模拟；指针保持锁定（用键盘选，不用点）
   buildCiCards();
   ciMenu.style.display = ''; ciTarget.style.display = 'none';
   ciEl.classList.add('show');
 }
-function closeCallIn() {
-  callInOpen = false; ciHolding = false;
-  ciEl.classList.remove('show');
-  cancelAnimationFrame(ciRaf); ciRaf = 0;
-  if (state === STATE.PLAYING) canvas.requestPointerLock();
-}
+function closeCallIn() { callInOpen = false; ciEl.classList.remove('show'); }
 function buildCiCards() {
   ciPoints.textContent = Math.floor(伤害积分);
   ciCards.innerHTML = '';
-  for (const type of CI_ORDER) {
+  CI_ORDER.forEach((type, i) => {
     const cfg = 支援[type], afford = 伤害积分 >= cfg.花费;
     const card = document.createElement('div');
     card.className = 'ci-card' + (afford ? '' : ' disabled');
-    const costLine = afford
-      ? `<div class="cc">✓ 花费 ${cfg.花费}</div>`
-      : `<div class="cc locked">🔒 还差 ${Math.ceil(cfg.花费 - 伤害积分)} 伤害积分</div>`;
-    card.innerHTML = `<div class="cn">${cfg.名字}</div><div class="cd">${CI_DESC[type]}</div>${costLine}`;
-    if (afford) card.addEventListener('click', () => selectCiStrike(type));
-    else card.addEventListener('click', () => { card.classList.remove('shake'); void card.offsetWidth; card.classList.add('shake'); });
+    const cost = afford ? `<div class="cc">✓ 花费 ${cfg.花费}</div>` : `<div class="cc locked">🔒 还差 ${Math.ceil(cfg.花费 - 伤害积分)}</div>`;
+    card.innerHTML = `<div class="ci-key">${CI_KEYS[i]}</div><div class="cn">${cfg.名字}</div><div class="cd">${CI_DESC[type]}</div>${cost}`;
     ciCards.appendChild(card);
-  }
+  });
 }
-function selectCiStrike(type) {
-  if (伤害积分 < 支援[type].花费) return;
-  ciType = type; ciStep = 'target'; ciHold = 0; ciHolding = false;
-  ciTName.textContent = 支援[type].名字;
-  ciMenu.style.display = 'none'; ciTarget.style.display = '';
-  ciCursor.x = ciMap.width / 2; ciCursor.y = ciMap.height / 2;
-  ciLastT = 0;
-  renderCiMap();
-}
-function backToCiMenu() { ciStep = 'menu'; ciHolding = false; cancelAnimationFrame(ciRaf); ciRaf = 0; buildCiCards(); ciMenu.style.display = ''; ciTarget.style.display = 'none'; }
-function ciViewR() { return Math.min(activeLevel.size, 150); }
-function ciMapToWorld(mx, mz) { const S = ciMap.width, k = S / (2 * ciViewR()); return new THREE.Vector3(player.pos.x + (mx - S / 2) / k, 0, player.pos.z + (mz - S / 2) / k); }
-function ciW2M(wx, wz) { const S = ciMap.width, k = S / (2 * ciViewR()); return [S / 2 + (wx - player.pos.x) * k, S / 2 + (wz - player.pos.z) * k]; }
-function renderCiMap() {
-  const ctx = ciCtx, S = ciMap.width, vr = ciViewR(), k = S / (2 * vr);
-  // 长按进度（按真实时间，任何帧率下都是 0.6 秒锁定）
-  const now = performance.now();
-  const d = ciLastT ? Math.min(0.1, (now - ciLastT) / 1000) : 0; ciLastT = now;
-  if (ciHolding) { ciHold += d; if (ciHold >= 0.6) { confirmCiTarget(); return; } }
-  ctx.clearRect(0, 0, S, S); ctx.fillStyle = '#141c26'; ctx.fillRect(0, 0, S, S);
-  ctx.fillStyle = 'rgba(150,160,180,.45)';
-  for (const c of activeLevel.colliders) {
-    if (c.max.y <= 1.0) continue;
-    const mx = (c.min.x + c.max.x) / 2, mz = (c.min.z + c.max.z) / 2;
-    if (Math.abs(mx - player.pos.x) > vr + 40 || Math.abs(mz - player.pos.z) > vr + 40) continue;
-    const [x0, z0] = ciW2M(c.min.x, c.min.z), [x1, z1] = ciW2M(c.max.x, c.max.z);
-    ctx.fillRect(x0, z0, Math.max(1, x1 - x0), Math.max(1, z1 - z0));
-  }
-  ctx.fillStyle = '#ff3b30';
-  for (const e of enemies) { if (e.dead) continue; const [x, z] = ciW2M(e.root.position.x, e.root.position.z); ctx.beginPath(); ctx.arc(x, z, 2.5, 0, Math.PI * 2); ctx.fill(); }
-  if (boss && !boss.dead) { const [x, z] = ciW2M(boss.root.position.x, boss.root.position.z); ctx.fillStyle = '#ff6a5a'; ctx.beginPath(); ctx.arc(x, z, 6, 0, Math.PI * 2); ctx.fill(); }
-  ctx.fillStyle = '#ffaa44';
-  for (const bm of bombers) { if (bm.dead) continue; const [x, z] = ciW2M(bm.root.position.x, bm.root.position.z); ctx.fillRect(x - 3, z - 3, 6, 6); }
-  const [px, pz] = ciW2M(player.pos.x, player.pos.z);
-  ctx.save(); ctx.translate(px, pz); ctx.rotate(-player.yaw); ctx.fillStyle = '#8fefc0'; ctx.beginPath(); ctx.moveTo(0, -7); ctx.lineTo(5, 6); ctx.lineTo(-5, 6); ctx.closePath(); ctx.fill(); ctx.restore();
-  // AOE 预览 + 光标
-  const cfg = 支援[ciType], aoeR = (ciType === '炮兵齐射' ? cfg.散布 : cfg.半径) * k;
-  ctx.strokeStyle = ciType === '冷冻弹药' ? '#8fd8f0' : (ciType === '核弹' ? '#ff2200' : '#ff6633');
-  ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(ciCursor.x, ciCursor.y, aoeR, 0, Math.PI * 2); ctx.stroke();
-  ctx.beginPath(); ctx.moveTo(ciCursor.x - 9, ciCursor.y); ctx.lineTo(ciCursor.x + 9, ciCursor.y); ctx.moveTo(ciCursor.x, ciCursor.y - 9); ctx.lineTo(ciCursor.x, ciCursor.y + 9); ctx.stroke();
-  if (ciHold > 0) { ctx.strokeStyle = '#ffe08a'; ctx.lineWidth = 4; ctx.beginPath(); ctx.arc(ciCursor.x, ciCursor.y, 18, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.min(1, ciHold / 0.6)); ctx.stroke(); }
-  if (ciStep === 'target' && callInOpen) ciRaf = requestAnimationFrame(renderCiMap);
-}
-function confirmCiTarget() {
-  const world = ciMapToWorld(ciCursor.x, ciCursor.y);
-  const b = activeLevel.size - 4; world.x = Math.max(-b, Math.min(b, world.x)); world.z = Math.max(-b, Math.min(b, world.z));
-  fireStrike(ciType, world);
+// 按 1/2/3/4 选支援 → 进入准星瞄准
+function pickStrike(i) {
+  const type = CI_ORDER[i];
+  if (!type) return;
+  if (伤害积分 < 支援[type].花费) { flashWaveBanner(`伤害积分不足（还差 ${Math.ceil(支援[type].花费 - 伤害积分)}）`); return; }
   closeCallIn();
+  startAiming(type);
 }
-ciMap.addEventListener('mousemove', (e) => { const r = ciMap.getBoundingClientRect(); ciCursor.x = (e.clientX - r.left) * (ciMap.width / r.width); ciCursor.y = (e.clientY - r.top) * (ciMap.height / r.height); });
-ciMap.addEventListener('mousedown', (e) => { if (e.button === 0) { ciHolding = true; ciHold = 0.0001; } });
-window.addEventListener('mouseup', (e) => { if (e.button === 0 && ciStep === 'target' && ciHold < 0.6) { ciHolding = false; ciHold = 0; } });
-ciMap.addEventListener('contextmenu', (e) => { e.preventDefault(); backToCiMenu(); });
+
+// 准星瞄地面：地上一个落点圈 + AOE 圈；空格/左键召唤，Esc 取消
+let aimRing = null, aimAoe = null;
+const _aimWorld = new THREE.Vector3(), _ao = new THREE.Vector3(), _ad = new THREE.Vector3();
+function startAiming(type) {
+  aimingStrike = true; pendingStrike = type;
+  const cfg = 支援[type], r = (type === '炮兵齐射' ? cfg.散布 : cfg.半径);
+  const col = type === '冷冻弹药' ? 0x8fd8f0 : (type === '核弹' ? 0xff2200 : 0xff7733);
+  if (!aimRing) {
+    aimRing = new THREE.Mesh(new THREE.RingGeometry(0.6, 1.2, 24), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.9, side: THREE.DoubleSide, depthWrite: false, toneMapped: false }));
+    aimRing.rotation.x = -Math.PI / 2; scene.add(aimRing);
+    aimAoe = new THREE.Mesh(new THREE.RingGeometry(0.97, 1, 56), new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.6, side: THREE.DoubleSide, depthWrite: false, toneMapped: false }));
+    aimAoe.rotation.x = -Math.PI / 2; scene.add(aimAoe);
+  }
+  aimRing.material.color.setHex(col); aimAoe.material.color.setHex(col);
+  aimAoe.scale.setScalar(r);
+  aimRing.visible = aimAoe.visible = true;
+  hud.tankHint.textContent = `瞄准地面 · 空格/左键 召唤【${cfg.名字}】 · Esc 取消`;
+  hud.tankHint.style.display = 'block';
+}
+function updateAimMarker() {
+  camera.getWorldPosition(_ao); camera.getWorldDirection(_ad);
+  let t = _ad.y < -0.02 ? (-_ao.y / _ad.y) : 220;
+  t = Math.min(Math.max(2, t), 320);
+  const b = activeLevel.size - 4;
+  _aimWorld.set(Math.max(-b, Math.min(b, _ao.x + _ad.x * t)), 0.07, Math.max(-b, Math.min(b, _ao.z + _ad.z * t)));
+  aimRing.position.copy(_aimWorld); aimAoe.position.copy(_aimWorld);
+  aimRing.material.opacity = 0.7 + 0.3 * Math.abs(Math.sin(performance.now() * 0.006));
+}
+function confirmAiming() {
+  if (!aimingStrike) return;
+  fireStrike(pendingStrike, _aimWorld.clone().setY(0));
+  endAiming();
+}
+function cancelAiming() { if (aimingStrike) { endAiming(); flashWaveBanner('已取消召唤'); } }
+function endAiming() {
+  aimingStrike = false; pendingStrike = null;
+  if (aimRing) aimRing.visible = aimAoe.visible = false;
+  hud.tankHint.style.display = 'none';
+}
 
 const _tankTmp = new THREE.Vector3();
 function tryToggleTank() {
@@ -1491,8 +1492,8 @@ function frame() {
       if (updateZombieBomb(zombieBombs[i], simDt, time)) { zombieBombs[i].root.parent && scene.remove(zombieBombs[i].root); zombieBombs.splice(i, 1); }
     }
     if (tank && !inTank) tank.update(dt);
-    // 友军坦克提示
-    if (tank) {
+    // 友军坦克提示（瞄准支援时不抢占提示条）
+    if (tank && !aimingStrike) {
       if (inTank) { hud.tankHint.textContent = 'F 下坦克 · 左键开炮（弹药无限）'; hud.tankHint.style.display = 'block'; }
       else {
         const near = Math.hypot(player.pos.x - tank.root.position.x, player.pos.z - tank.root.position.z) <= 坦克.上车距离;
@@ -1505,6 +1506,7 @@ function frame() {
     abilities.update(simDt, enemies, player);
     updateSkillsHud();
     updateStrikes(simDt);
+    if (aimingStrike) updateAimMarker();
     hud.dmgPoints.textContent = Math.floor(伤害积分);
 
     // 掉落拾取
