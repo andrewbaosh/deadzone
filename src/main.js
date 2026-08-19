@@ -885,8 +885,12 @@ function buildCiCards() {
     const cfg = 支援[type], afford = 伤害积分 >= cfg.花费;
     const card = document.createElement('div');
     card.className = 'ci-card' + (afford ? '' : ' disabled');
-    card.innerHTML = `<div class="cn">${cfg.名字}</div><div class="cd">${CI_DESC[type]}</div><div class="cc">${cfg.花费} 伤害</div>`;
+    const costLine = afford
+      ? `<div class="cc">✓ 花费 ${cfg.花费}</div>`
+      : `<div class="cc locked">🔒 还差 ${Math.ceil(cfg.花费 - 伤害积分)} 伤害积分</div>`;
+    card.innerHTML = `<div class="cn">${cfg.名字}</div><div class="cd">${CI_DESC[type]}</div>${costLine}`;
     if (afford) card.addEventListener('click', () => selectCiStrike(type));
+    else card.addEventListener('click', () => { card.classList.remove('shake'); void card.offsetWidth; card.classList.add('shake'); });
     ciCards.appendChild(card);
   }
 }

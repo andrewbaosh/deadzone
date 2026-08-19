@@ -239,9 +239,9 @@
     <div id="screen-flash" style="position:fixed;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:30;transition:opacity .55s ease-out;"></div>
     <div id="callin">
       <div id="callin-menu">
-        <div class="ci-title">召唤支援 &nbsp;·&nbsp; 伤害积分 <span id="ci-points">0</span></div>
+        <div class="ci-title">召唤支援 &nbsp;·&nbsp; 你的伤害积分 <span id="ci-points">0</span></div>
         <div id="ci-cards"></div>
-        <div class="ci-tip">点击一种支援（伤害积分足够才可选） · ESC 关闭</div>
+        <div class="ci-tip">打敌人/Boss 攒伤害积分 → 够了卡片就会亮、可点 · ESC 关闭</div>
       </div>
       <div id="callin-target" style="display:none;">
         <div class="ci-title">锁定目标 · <span id="ci-tname"></span></div>
@@ -262,8 +262,11 @@
       #ci-cards .ci-card .cn{font-size:17px;font-weight:800;margin-bottom:6px;}
       #ci-cards .ci-card .cd{font-size:12px;opacity:.85;line-height:1.4;min-height:34px;}
       #ci-cards .ci-card .cc{margin-top:8px;font-weight:800;color:#ffd24a;}
-      #ci-cards .ci-card.disabled{opacity:.4;cursor:not-allowed;border-color:rgba(120,120,120,.4);}
-      #ci-cards .ci-card.disabled:hover{transform:none;border-color:rgba(120,120,120,.4);}
+      #ci-cards .ci-card .cc.locked{color:#ff7a6a;font-size:12px;}
+      #ci-cards .ci-card.disabled{opacity:.55;cursor:not-allowed;border-color:rgba(150,90,80,.5);}
+      #ci-cards .ci-card.disabled:hover{transform:none;border-color:rgba(150,90,80,.5);}
+      #ci-cards .ci-card.shake{animation:ci-shake .35s;}
+      @keyframes ci-shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-6px)}40%{transform:translateX(6px)}60%{transform:translateX(-4px)}80%{transform:translateX(4px)}}
       #callin .ci-tip{margin-top:16px;font-size:13px;opacity:.8;}
       #callin-map{border-radius:10px;border:2px solid rgba(120,180,230,.5);background:#0e1620;box-shadow:0 6px 24px rgba(0,0,0,.6);cursor:crosshair;}
     </style>
