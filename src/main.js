@@ -190,6 +190,7 @@ const hud = {
   skZcd: el('sk-z').querySelector('.sk-cd'), skXcd: el('sk-x').querySelector('.sk-cd'), skVcd: el('sk-v').querySelector('.sk-cd'),
   skZnum: el('sk-z').querySelector('.sk-num'),
   dmgPoints: el('dmg-points'),
+  nukeTimer: el('nuke-timer'),
 };
 
 function setCenterMsg(html, show = true) {
@@ -765,7 +766,7 @@ function markerRing(pos, color, r) {
   strikeMarkers.push(mk);
   return mk;
 }
-function spawnStrikeProjectile(kind, pos, speed, marker, cfg) {
+function spawnStrikeProjectile(kind, pos, speed, marker, cfg, fuse = null) {
   const g = new THREE.Group();
   if (kind === 'nuke') {
     g.add(new THREE.Mesh(new THREE.SphereGeometry(0.8, 12, 10), new THREE.MeshStandardMaterial({ color: 0x2a2a2a, roughness: 0.6, metalness: 0.4 })));
@@ -778,7 +779,7 @@ function spawnStrikeProjectile(kind, pos, speed, marker, cfg) {
   }
   g.position.set(pos.x, 62, pos.z);
   scene.add(g);
-  strikeProjectiles.push({ kind, mesh: g, target: pos.clone(), speed, marker, cfg });
+  strikeProjectiles.push({ kind, mesh: g, target: pos.clone(), speed, marker, cfg, fuse });
 }
 function fireStrike(type, pos) {
   const cfg = 支援[type];
@@ -793,23 +794,35 @@ function fireStrike(type, pos) {
   } else if (type === '制导导弹') {
     spawnStrikeProjectile('guided', pos, cfg.降速, markerRing(pos, 0xff3020, cfg.半径), cfg); flashWaveBanner('📡 制导导弹 已呼叫！');
   } else if (type === '核弹') {
-    spawnStrikeProjectile('nuke', pos, cfg.降速, markerRing(pos, 0xff2200, cfg.半径), cfg); flashWaveBanner('☢ 核弹 已呼叫！离远点！');
+    const mk = markerRing(pos, 0xff2200, cfg.半径); mk.life = cfg.倒计时 + 1.5;
+    spawnStrikeProjectile('nuke', pos, cfg.降速, mk, cfg, cfg.倒计时); flashWaveBanner('☢ 核弹来袭！10 秒后爆炸，快跑！');
   } else if (type === '冷冻弹药') {
     spawnStrikeProjectile('freeze', pos, cfg.降速, markerRing(pos, 0x8fd8f0, cfg.半径), cfg); flashWaveBanner('❄ 冷冻弹药 已呼叫！');
   }
 }
 function updateStrikes(dt) {
   // 下落打击体
+  let nukeT = Infinity;
   for (let i = strikeProjectiles.length - 1; i >= 0; i--) {
     const s = strikeProjectiles[i];
     s.mesh.position.y -= s.speed * dt;
-    if (s.mesh.position.y <= 0.5) {
+    let done = false;
+    if (s.fuse != null) {                     // 有倒计时(核弹)：慢降+读秒，到点才炸
+      s.fuse -= dt;
+      if (s.mesh.position.y < 0.7) s.mesh.position.y = 0.7;
+      if (s.fuse < nukeT) nukeT = s.fuse;
+      if (s.fuse <= 0) done = true;
+    } else if (s.mesh.position.y <= 0.5) done = true;
+    if (done) {
       detonateStrike(s.kind, s.target, s.cfg);
       scene.remove(s.mesh);
       if (s.marker) s.marker.life = 0;
       strikeProjectiles.splice(i, 1);
     }
   }
+  // 核弹倒计时 HUD
+  if (nukeT < Infinity) { hud.nukeTimer.style.display = 'block'; hud.nukeTimer.textContent = `☢ 核弹爆炸倒计时 ${Math.ceil(Math.max(0, nukeT))}s · 快跑！`; }
+  else if (hud.nukeTimer.style.display !== 'none') hud.nukeTimer.style.display = 'none';
   // 炮兵齐射：逐发落地
   for (let i = artilleryShells.length - 1; i >= 0; i--) {
     const sh = artilleryShells[i]; sh.t -= dt;
@@ -870,6 +883,7 @@ function clearStrikes() {
   for (const s of strikeProjectiles) scene.remove(s.mesh);
   for (const mk of strikeMarkers) { scene.remove(mk.mesh); mk.mesh.geometry.dispose(); mk.mesh.material.dispose(); }
   strikeProjectiles = []; artilleryShells = []; strikeMarkers = [];
+  hud.nukeTimer.style.display = 'none';
 }
 
 /* ============ G 召唤支援：键盘选(1-4) + 准星瞄地面召唤（无鼠标也能用） ============ */
