@@ -128,6 +128,7 @@ function earnDamage(d) { if (d > 0) 伤害积分 += d; }
 let strikeProjectiles = [];
 let artilleryShells = [];
 let strikeMarkers = [];
+let radiationZones = [];        // 核弹爆炸后的持续核辐射区（进去才掉血）
 let callInOpen = false;         // G 支援菜单是否打开（打开时冻结模拟）
 let aimingStrike = false;       // 是否正在用准星瞄地面选支援落点
 let pendingStrike = null;
@@ -845,6 +846,7 @@ function detonateStrike(kind, pos, cfg) {
     effects.addExplosion(pos, cfg.半径 * 0.5); effects.addExplosion(new THREE.Vector3(pos.x, 4, pos.z), cfg.半径 * 0.35);
     playExplosion(); addShake(1.0 * 手感.屏幕震动); flashScreen(0.85);
     killArea(pos, cfg.半径);
+    spawnRadiation(pos, cfg);          // 爆炸后留下持续核辐射区
   } else if (kind === 'guided') {
     effects.addExplosion(pos, cfg.半径 * 0.4); playExplosion(); addShake(0.7 * 手感.屏幕震动); flashScreen(0.4);
     killArea(pos, cfg.半径);
@@ -879,10 +881,57 @@ function areaDamage(pos, r, dmg) {
     }
   }
 }
+// ☢ 核弹爆炸后：在落点生成持续核辐射区。里面的僵尸持续掉血（会被慢慢辐射死），
+// 玩家进去也持续掉血；站在圈外则完全无害。到时后渐隐消失。
+function spawnRadiation(pos, cfg) {
+  const r = cfg.辐射半径 || cfg.半径;
+  const geo = new THREE.CircleGeometry(r, 44); geo.rotateX(-Math.PI / 2);
+  const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({
+    color: 0x7dff3a, transparent: true, opacity: 0.2, depthWrite: false, side: THREE.DoubleSide }));
+  mesh.position.set(pos.x, 0.05, pos.z); scene.add(mesh);
+  const rGeo = new THREE.RingGeometry(r * 0.94, r, 56); rGeo.rotateX(-Math.PI / 2);
+  const ring = new THREE.Mesh(rGeo, new THREE.MeshBasicMaterial({
+    color: 0xaaff44, transparent: true, opacity: 0.6, depthWrite: false, side: THREE.DoubleSide }));
+  ring.position.set(pos.x, 0.06, pos.z); scene.add(ring);
+  radiationZones.push({ pos: pos.clone(), r, r2: r * r, life: cfg.辐射时长, tick: 0, cfg, mesh, ring });
+}
+function updateRadiation(dt) {
+  const t = clock.elapsedTime;
+  for (let i = radiationZones.length - 1; i >= 0; i--) {
+    const z = radiationZones[i]; z.life -= dt;
+    const fade = Math.min(1, z.life / 2);                 // 最后 2 秒渐隐
+    const pulse = 0.5 + 0.5 * Math.abs(Math.sin(t * 3.5));
+    z.mesh.material.opacity = (0.14 + 0.12 * pulse) * fade;
+    z.ring.material.opacity = (0.4 + 0.35 * pulse) * fade;
+    // 每隔 辐射间隔 结算一次伤害（持续伤害，而不是每帧）
+    z.tick -= dt;
+    if (z.tick <= 0) {
+      z.tick = z.cfg.辐射间隔;
+      const dz = z.cfg.辐射伤害僵尸 * z.cfg.辐射间隔;
+      for (const en of enemies) {
+        if (en.dead) continue;
+        if ((en.root.position.x - z.pos.x) ** 2 + (en.root.position.z - z.pos.z) ** 2 > z.r2) continue;
+        en.hp -= dz; en.hurtFlash = Math.max(en.hurtFlash || 0, 0.08); earnDamage(dz);
+        if (en.hp <= 0 && !en.dead) { en.die(effects); onKill(en, false); }
+      }
+      if (boss && !boss.dead && (boss.root.position.x - z.pos.x) ** 2 + (boss.root.position.z - z.pos.z) ** 2 <= z.r2) { boss.takeDamage(dz, false, effects); earnDamage(dz); }
+      for (const bm of bombers) if (!bm.dead && (bm.root.position.x - z.pos.x) ** 2 + (bm.root.position.z - z.pos.z) ** 2 <= z.r2) { bm.takeDamage(dz, false, effects); earnDamage(dz); }
+      // 玩家在圈内也掉血（不进去就没事）
+      if (player.alive && (player.pos.x - z.pos.x) ** 2 + (player.pos.z - z.pos.z) ** 2 <= z.r2)
+        damagePlayer(z.cfg.辐射伤害玩家 * z.cfg.辐射间隔, t, z.pos);
+    }
+    if (z.life <= 0) {
+      scene.remove(z.mesh); z.mesh.geometry.dispose(); z.mesh.material.dispose();
+      scene.remove(z.ring); z.ring.geometry.dispose(); z.ring.material.dispose();
+      radiationZones.splice(i, 1);
+    }
+  }
+}
 function clearStrikes() {
   for (const s of strikeProjectiles) scene.remove(s.mesh);
   for (const mk of strikeMarkers) { scene.remove(mk.mesh); mk.mesh.geometry.dispose(); mk.mesh.material.dispose(); }
-  strikeProjectiles = []; artilleryShells = []; strikeMarkers = [];
+  for (const z of radiationZones) { scene.remove(z.mesh); z.mesh.geometry.dispose(); z.mesh.material.dispose(); scene.remove(z.ring); z.ring.geometry.dispose(); z.ring.material.dispose(); }
+  strikeProjectiles = []; artilleryShells = []; strikeMarkers = []; radiationZones = [];
   hud.nukeTimer.style.display = 'none';
 }
 
@@ -1520,6 +1569,7 @@ function frame() {
     abilities.update(simDt, enemies, player);
     updateSkillsHud();
     updateStrikes(simDt);
+    updateRadiation(simDt);
     if (aimingStrike) updateAimMarker();
     hud.dmgPoints.textContent = Math.floor(伤害积分);
 
