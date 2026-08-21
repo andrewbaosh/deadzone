@@ -21,7 +21,7 @@ import { DynamicLights } from './graphics/DynamicLights.js';
 import { EyeField } from './graphics/EyeField.js';
 import { makeDetailNormal } from './graphics/detailTexture.js';
 import { 打击感, 波次曲线, 音效氛围, 掉落, 受击指示 } from './config/gameplay.js';
-import { playHeartbeat, playPickup, playShot, playRocketFire } from './audio.js';
+import { playHeartbeat, playPickup, playShot, playRocketFire, playMeleeHit } from './audio.js';
 import { Pickups } from './pickups.js';
 import { Minimap } from './minimap.js';
 import { Boss } from './boss.js';
@@ -1062,6 +1062,20 @@ function updateTank(dt) {
   // 炮塔朝相机水平方向
   t.turret.rotation.y = y - t.root.rotation.y;
   t.update(dt);
+
+  // 碾压/撞击：靠近坦克的地面僵尸直接被压死/撞死（飞行的压不到）
+  const crushR2 = 坦克.碾压半径 * 坦克.碾压半径;
+  let crushed = 0;
+  for (const en of enemies) {
+    if (en.dead || en.flying) continue;
+    const dx = en.root.position.x - pos.x, dz = en.root.position.z - pos.z;
+    if (dx * dx + dz * dz > crushR2) continue;
+    earnDamage(Math.max(1, en.hp));
+    const bp = en.root.position.clone(); bp.y = 0.6;
+    effects.addBloodSpray(bp, new THREE.Vector3(dx, 0.4, dz).normalize(), 14);
+    en.die(effects); kills++; crushed++;
+  }
+  if (crushed) { playMeleeHit(false); addShake(0.12 * 手感.屏幕震动); }
 
   // 第三人称追尾相机
   const camY = pos.y + 5.2;
