@@ -236,6 +236,7 @@
       <div id="weapon-name">步枪 AR-15</div>
       <div id="weapon-hint">1-8 换武器 · Z 冷冻发射器 X 冰罐 V 震撼弹 · Q 切上一把 · 右键/F 开镜 · R 换弹 · M 音乐</div>
     </div>
+    <div id="jet-hint" style="position:absolute;right:14px;bottom:12px;z-index:12;color:#bcd6ff;font-size:12px;letter-spacing:1px;text-shadow:0 1px 3px #000;opacity:.85;">✈ 鼠标转向 · W/S 油门 · 左键机炮 · 长按 <b>2</b> 锁定导弹（松开发射）</div>
     <div id="screen-flash" style="position:fixed;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:30;transition:opacity .55s ease-out;"></div>
     <div id="nuke-timer" style="display:none;position:absolute;left:50%;top:12%;transform:translateX(-50%);z-index:13;padding:8px 22px;border-radius:8px;background:rgba(60,10,6,.8);border:2px solid #ff3b2f;color:#ffdd55;font-weight:800;font-size:22px;letter-spacing:2px;text-shadow:0 2px 6px #000;animation:nuke-pulse .8s infinite;">☢ 核弹爆炸倒计时</div>
     <style>@keyframes nuke-pulse{0%,100%{opacity:1}50%{opacity:.5}}</style>
@@ -276,6 +277,17 @@
     </style>
     <div id="tank-hint" style="display:none;position:absolute;left:50%;bottom:22%;transform:translateX(-50%);z-index:12;padding:6px 16px;border-radius:6px;background:rgba(20,26,18,.72);border:1px solid rgba(150,200,120,.5);color:#cfe8b0;font-weight:700;letter-spacing:1px;text-shadow:0 1px 3px #000;">按 F 上坦克</div>
     <div id="dmg-points-wrap" style="position:absolute;left:16px;bottom:126px;z-index:12;font-weight:800;letter-spacing:1px;color:#ffd24a;text-shadow:0 1px 3px #000;font-size:13px;">支援积分 <span id="dmg-points">0</span> <span style="color:#9fd0ff;font-weight:600;">· 按 G 召唤</span></div>
+    <!-- 第八波空战：锁定状态 + 目标准星（跟着敌机走） -->
+    <div id="jet-lock" style="display:none;position:absolute;left:50%;bottom:26%;transform:translateX(-50%);z-index:12;padding:6px 18px;border-radius:6px;background:rgba(40,8,8,.72);border:1px solid rgba(255,90,60,.7);color:#ffd0c0;font-weight:800;letter-spacing:1px;text-shadow:0 1px 3px #000;">◎ 锁定中…</div>
+    <div id="jet-reticle" style="display:none;position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);z-index:12;width:56px;height:56px;border:2px solid #ff4433;border-radius:6px;box-shadow:0 0 8px rgba(255,60,40,.9);pointer-events:none;"></div>
+    <!-- 空战模式：隐藏地面 HUD（弹药/枪名/技能/积分/坦克提示/小地图） -->
+    <style>
+      body.jetmode #ammo, body.jetmode #weapon-name, body.jetmode #skills,
+      body.jetmode #dmg-points-wrap, body.jetmode #tank-hint, body.jetmode #minimap,
+      body.jetmode #weapon-hint, body.jetmode #scope { display:none !important; }
+      body.jetmode #jet-hint { display:block !important; }
+      #jet-hint { display:none; }
+    </style>
     <div id="skills">
       <div class="skill" id="sk-z"><div class="sk-cd"></div><div class="sk-inner"><span class="sk-key">Z</span><span class="sk-name">冷冻发射器</span></div><span class="sk-num">6</span></div>
       <div class="skill" id="sk-x"><div class="sk-cd"></div><div class="sk-inner"><span class="sk-key">X</span><span class="sk-name">冰罐</span></div></div>
