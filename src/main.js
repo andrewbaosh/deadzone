@@ -245,36 +245,29 @@ const WAVE_MENU = [
   { n: 4, name: '沙漠尸潮' }, { n: 5, name: '沙漠尖兵' }, { n: 6, name: '军营飞尸' },
   { n: 7, name: '军民要塞' }, { n: 8, name: '空战' },
 ];
-const lsWaves = el('ls-waves'), lsDiff = el('ls-diff'), lsHint = el('ls-hint'), lsTitle = el('ls-title');
+const lsWaves = el('ls-waves'), lsDiff = el('ls-diff'), lsHint = el('ls-hint'), lsTitle = el('ls-title'), lsStart = el('ls-start');
 function buildWaveCards() {
   lsWaves.innerHTML = '';
   for (const w of WAVE_MENU) {
     const d = document.createElement('div');
     d.className = 'ls-card'; d.dataset.n = w.n;
     d.innerHTML = `<span class="ls-n">${w.n}</span><span class="ls-name">${w.name}</span>`;
-    d.addEventListener('click', (e) => { e.stopPropagation(); selWave = w.n; menuStage = 'wave'; refreshMenu(); pickWave(); });
+    d.addEventListener('click', (e) => { e.stopPropagation(); selWave = w.n; refreshMenu(); });
     lsWaves.appendChild(d);
   }
-  for (const c of lsDiff.querySelectorAll('.ls-card.diff')) {
-    c.addEventListener('click', (e) => { e.stopPropagation(); selDiff = c.dataset.diff === 'hard' ? 1 : 0; refreshMenu(); confirmDiff(); });
-  }
+  const diffCards = [...lsDiff.querySelectorAll('.ls-card.diff')];
+  diffCards.forEach((c) => c.addEventListener('click', (e) => { e.stopPropagation(); selDiff = c.dataset.diff === 'hard' ? 1 : 0; refreshMenu(); }));
+  lsStart.addEventListener('click', (e) => { e.stopPropagation(); startGame(); });
 }
 function refreshMenu() {
   lsWaves.querySelectorAll('.ls-card').forEach((d) => d.classList.toggle('selected', +d.dataset.n === selWave));
-  const diffCards = lsDiff.querySelectorAll('.ls-card.diff');
-  diffCards.forEach((d, i) => d.classList.toggle('selected', i === selDiff));
-  if (menuStage === 'wave') {
-    lsDiff.style.display = 'none';
-    lsTitle.textContent = '🎮 选关卡（每一波 = 一关）';
-    lsHint.textContent = '← → 选择 · 数字键直接选波 · Enter 确认';
-  } else {
-    lsDiff.style.display = 'block';
-    lsTitle.textContent = `🎮 第 ${selWave} 波 · 选难度`;
-    lsHint.textContent = '← → 选难度 · 1 简单 / 2 困难 · Enter 开始 · Esc 返回';
-  }
+  lsDiff.querySelectorAll('.ls-card.diff').forEach((d, i) => d.classList.toggle('selected', i === selDiff));
+  lsTitle.textContent = '🎮 选关卡（每一波 = 一关）';
+  const dn = selDiff === 1 ? '困难 · 孤身' : '简单 · 2 队友';
+  lsStart.textContent = `▶ 开始：第 ${selWave} 波 · ${dn}`;
 }
-function pickWave() { menuStage = 'diff'; selDiff = 0; refreshMenu(); }
-function confirmDiff() {
+// 选好关卡+难度，点“开始”或按 Enter 才真正开始
+function startGame() {
   pendingWave = selWave;
   difficulty = selDiff === 1 ? 'hard' : 'easy';
   beginGame();     // keydown/click 手势里触发指针锁定 → startFreshGame 读取 pendingWave/difficulty
@@ -285,28 +278,17 @@ function returnToMenu() {
   stopMusic(); stopAmbient();
   startOverlay.style.display = 'flex';
   startOverlay.querySelector('.start-title').textContent = '丧尸围城';
-  menuStage = 'wave'; refreshMenu();
+  refreshMenu();
 }
 function menuKey(e) {
   e.preventDefault();
-  if (menuStage === 'wave') {
-    if (e.code >= 'Digit1' && e.code <= 'Digit8') { selWave = +e.code.slice(5); refreshMenu(); pickWave(); return; }
-    if (e.code === 'ArrowRight' || e.code === 'KeyD') { selWave = selWave % 8 + 1; refreshMenu(); }
-    else if (e.code === 'ArrowLeft' || e.code === 'KeyA') { selWave = (selWave + 6) % 8 + 1; refreshMenu(); }
-    else if (e.code === 'Enter' || e.code === 'Space') pickWave();
-  } else {
-    if (e.code === 'Digit1') { selDiff = 0; refreshMenu(); confirmDiff(); }
-    else if (e.code === 'Digit2') { selDiff = 1; refreshMenu(); confirmDiff(); }
-    else if (e.code === 'ArrowRight' || e.code === 'KeyD' || e.code === 'ArrowLeft' || e.code === 'KeyA') { selDiff = selDiff ? 0 : 1; refreshMenu(); }
-    else if (e.code === 'Enter' || e.code === 'Space') confirmDiff();
-    else if (e.code === 'Escape' || e.code === 'Backspace') { menuStage = 'wave'; refreshMenu(); }
-  }
+  if (e.code >= 'Digit1' && e.code <= 'Digit8') { selWave = +e.code.slice(5); refreshMenu(); }
+  else if (e.code === 'ArrowLeft' || e.code === 'KeyA') { selDiff = 0; refreshMenu(); }
+  else if (e.code === 'ArrowRight' || e.code === 'KeyD') { selDiff = 1; refreshMenu(); }
+  else if (e.code === 'Enter' || e.code === 'Space') startGame();
 }
 buildWaveCards();
-selWave = 1; menuStage = 'wave'; refreshMenu();
-
-// 关卡菜单只用键盘导航（点击卡片也行），不要一点空白就直接开局
-startOverlay.addEventListener('click', (e) => { if (e.target === startOverlay) { /* 空白处：忽略，用键盘选 */ } });
+selWave = 1; selDiff = 0; refreshMenu();
 
 document.addEventListener('pointerlockchange', () => {
   const locked = document.pointerLockElement === canvas;
