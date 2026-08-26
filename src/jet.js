@@ -104,3 +104,48 @@ export class ZombieJet {
   }
   remove() { this.scene.remove(this.root); }
 }
+
+/**
+ * 友军僚机（第八波·简单模式）。跟在玩家附近飞，自动朝最近的僵尸战机开火。
+ * 子弹由 main.js 复用玩家机炮管线（打僵尸战机）。
+ */
+export class AllyJet {
+  constructor(scene, pos, side, cfg) {
+    const b = buildJet(PLAYER_COLORS);
+    this.root = b.group; this.glow = b.glow; this.scene = scene; this.cfg = cfg;
+    this.root.rotation.order = 'YXZ';
+    this.root.position.copy(pos);
+    this.side = side;                       // 站位偏移方向 (-1/1)
+    this.fireCd = 0.5 + Math.random();
+    this._to = new THREE.Vector3();
+    scene.add(this.root);
+  }
+  update(dt, playerPos, playerFwd, enemyJets) {
+    const rx = -playerFwd.z, rz = playerFwd.x;   // 水平右向量
+    const desired = this._to.set(
+      playerPos.x - playerFwd.x * 14 + rx * this.side * 16,
+      playerPos.y + 4 * this.side,
+      playerPos.z - playerFwd.z * 14 + rz * this.side * 16,
+    ).sub(this.root.position);
+    const dist = desired.length();
+    if (dist > 0.001) desired.multiplyScalar(1 / dist);
+    const followSp = Math.min(this.cfg.玩家速度 * 1.2, 20 + dist * 2);
+    this.root.position.addScaledVector(desired, followSp * dt);
+    let best = null, bestD = Infinity;
+    for (const jz of enemyJets) { if (jz.dead) continue; const dd = jz.root.position.distanceToSquared(this.root.position); if (dd < bestD) { bestD = dd; best = jz; } }
+    let aim;
+    if (best) aim = best.root.position.clone().sub(this.root.position).normalize();
+    else aim = desired.clone();
+    this.root.rotation.y = Math.atan2(-aim.x, -aim.z);
+    this.root.rotation.x = Math.asin(Math.max(-1, Math.min(1, aim.y)));
+    if (this.glow) this.glow.material.opacity = 0.6 + 0.4 * Math.random();
+    this.fireCd -= dt;
+    if (best && Math.sqrt(bestD) < 220 && this.fireCd <= 0) {
+      this.fireCd = 0.12;                   // 速射
+      const from = this.root.position.clone().addScaledVector(aim, 3.5);
+      return { fire: true, from, dir: aim };
+    }
+    return null;
+  }
+  remove() { this.scene.remove(this.root); }
+}

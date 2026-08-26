@@ -28,9 +28,10 @@ import { Boss } from './boss.js';
 import { RifleBoss } from './rifleBoss.js';
 import { Bomber } from './bomber.js';
 import { Tank } from './tank.js';
-import { PlayerJet, ZombieJet } from './jet.js';
+import { PlayerJet, ZombieJet, AllyJet } from './jet.js';
+import { Teammate } from './teammate.js';
 import { Abilities } from './abilities.js';
-import { BOSS, 沙漠, 步枪Boss, 军营, 要塞, 轰炸机, 坦克, 技能, 支援, 空战 } from './config/gameplay.js';
+import { BOSS, 沙漠, 步枪Boss, 军营, 要塞, 轰炸机, 坦克, 技能, 支援, 空战, 队友 } from './config/gameplay.js';
 
 /* ============ 渲染基础 ============ */
 const canvas = document.getElementById('game');
@@ -169,6 +170,13 @@ let jetBullets = [];            // 玩家机炮弹
 let jetMissiles = [];           // 玩家锁定导弹
 let enemyBullets = [];          // 敌机子弹
 let jetCannonCd = 0, jetMissileCd = 0, jetLockTimer = 0, jetLockTarget = null, jetLastYaw = 0, jetRoll = 0, jetWon = false;
+let allyJets = [];
+// 选关卡 + 难度（简单=多2队友；困难=自己）
+let teammates = [];
+let difficulty = 'hard';        // 'easy' | 'hard'
+let pendingWave = 1;            // 开局从第几波开始
+let menuStage = 'wave';         // 'wave' | 'diff'
+let selWave = 1, selDiff = 0;   // 菜单里当前高亮
 const jetPos = new THREE.Vector3();
 const jetVel = new THREE.Vector3();
 const _jfwd = new THREE.Vector3();
@@ -211,6 +219,7 @@ const hud = {
   nukeTimer: el('nuke-timer'),
   jetLock: el('jet-lock'),
   jetReticle: el('jet-reticle'),
+  diffTag: el('diff-tag'),
 };
 
 function setCenterMsg(html, show = true) {
@@ -230,7 +239,74 @@ function beginGame() {
   canvas.requestPointerLock();
 }
 
-startOverlay.addEventListener('click', beginGame);
+/* ============ 开局：选关卡（第几波）+ 难度（简单多2队友 / 困难自己） ============ */
+const WAVE_MENU = [
+  { n: 1, name: '小镇 · 序' }, { n: 2, name: '小镇 · 进' }, { n: 3, name: '巨兽 BOSS' },
+  { n: 4, name: '沙漠尸潮' }, { n: 5, name: '沙漠尖兵' }, { n: 6, name: '军营飞尸' },
+  { n: 7, name: '军民要塞' }, { n: 8, name: '空战' },
+];
+const lsWaves = el('ls-waves'), lsDiff = el('ls-diff'), lsHint = el('ls-hint'), lsTitle = el('ls-title');
+function buildWaveCards() {
+  lsWaves.innerHTML = '';
+  for (const w of WAVE_MENU) {
+    const d = document.createElement('div');
+    d.className = 'ls-card'; d.dataset.n = w.n;
+    d.innerHTML = `<span class="ls-n">${w.n}</span><span class="ls-name">${w.name}</span>`;
+    d.addEventListener('click', (e) => { e.stopPropagation(); selWave = w.n; menuStage = 'wave'; refreshMenu(); pickWave(); });
+    lsWaves.appendChild(d);
+  }
+  for (const c of lsDiff.querySelectorAll('.ls-card.diff')) {
+    c.addEventListener('click', (e) => { e.stopPropagation(); selDiff = c.dataset.diff === 'hard' ? 1 : 0; refreshMenu(); confirmDiff(); });
+  }
+}
+function refreshMenu() {
+  lsWaves.querySelectorAll('.ls-card').forEach((d) => d.classList.toggle('selected', +d.dataset.n === selWave));
+  const diffCards = lsDiff.querySelectorAll('.ls-card.diff');
+  diffCards.forEach((d, i) => d.classList.toggle('selected', i === selDiff));
+  if (menuStage === 'wave') {
+    lsDiff.style.display = 'none';
+    lsTitle.textContent = '🎮 选关卡（每一波 = 一关）';
+    lsHint.textContent = '← → 选择 · 数字键直接选波 · Enter 确认';
+  } else {
+    lsDiff.style.display = 'block';
+    lsTitle.textContent = `🎮 第 ${selWave} 波 · 选难度`;
+    lsHint.textContent = '← → 选难度 · 1 简单 / 2 困难 · Enter 开始 · Esc 返回';
+  }
+}
+function pickWave() { menuStage = 'diff'; selDiff = 0; refreshMenu(); }
+function confirmDiff() {
+  pendingWave = selWave;
+  difficulty = selDiff === 1 ? 'hard' : 'easy';
+  beginGame();     // keydown/click 手势里触发指针锁定 → startFreshGame 读取 pendingWave/difficulty
+}
+function returnToMenu() {
+  state = STATE.MENU;
+  document.exitPointerLock();
+  stopMusic(); stopAmbient();
+  startOverlay.style.display = 'flex';
+  startOverlay.querySelector('.start-title').textContent = '丧尸围城';
+  menuStage = 'wave'; refreshMenu();
+}
+function menuKey(e) {
+  e.preventDefault();
+  if (menuStage === 'wave') {
+    if (e.code >= 'Digit1' && e.code <= 'Digit8') { selWave = +e.code.slice(5); refreshMenu(); pickWave(); return; }
+    if (e.code === 'ArrowRight' || e.code === 'KeyD') { selWave = selWave % 8 + 1; refreshMenu(); }
+    else if (e.code === 'ArrowLeft' || e.code === 'KeyA') { selWave = (selWave + 6) % 8 + 1; refreshMenu(); }
+    else if (e.code === 'Enter' || e.code === 'Space') pickWave();
+  } else {
+    if (e.code === 'Digit1') { selDiff = 0; refreshMenu(); confirmDiff(); }
+    else if (e.code === 'Digit2') { selDiff = 1; refreshMenu(); confirmDiff(); }
+    else if (e.code === 'ArrowRight' || e.code === 'KeyD' || e.code === 'ArrowLeft' || e.code === 'KeyA') { selDiff = selDiff ? 0 : 1; refreshMenu(); }
+    else if (e.code === 'Enter' || e.code === 'Space') confirmDiff();
+    else if (e.code === 'Escape' || e.code === 'Backspace') { menuStage = 'wave'; refreshMenu(); }
+  }
+}
+buildWaveCards();
+selWave = 1; menuStage = 'wave'; refreshMenu();
+
+// 关卡菜单只用键盘导航（点击卡片也行），不要一点空白就直接开局
+startOverlay.addEventListener('click', (e) => { if (e.target === startOverlay) { /* 空白处：忽略，用键盘选 */ } });
 
 document.addEventListener('pointerlockchange', () => {
   const locked = document.pointerLockElement === canvas;
@@ -265,6 +341,7 @@ document.addEventListener('visibilitychange', () => {
 
 /* ============ 输入 ============ */
 document.addEventListener('keydown', (e) => {
+  if (state === STATE.MENU && startOverlay.style.display !== 'none') { menuKey(e); return; }
   if (state !== STATE.PLAYING) return;
   // G：召唤支援（开菜单 / 取消瞄准）
   if (e.code === 'KeyG') { e.preventDefault(); if (jetMode) return; if (callInOpen) closeCallIn(); else if (aimingStrike) cancelAiming(); else openCallIn(); return; }
@@ -363,6 +440,7 @@ function startFreshGame() {
   if (aimingStrike) endAiming();
   inTank = false; hud.tankHint.style.display = 'none';
   if (jetMode) exitJetMode();
+  for (const tm of teammates) tm.remove(); teammates = [];
   hud.crosshair.classList.remove('tank');
   // 回到小镇地图（上一局可能停在沙漠/军营/要塞）
   if (activeLevel !== level) {
@@ -395,6 +473,61 @@ function startFreshGame() {
   if (boss) { boss.remove(); boss = null; }
   bossActive = false;
   hud.bossHud.style.display = 'none';
+
+  // 选关卡：从指定波开始 + 难度助战
+  if (pendingWave > 1) jumpToWave(pendingWave);
+  spawnDifficultyHelpers();
+  updateDifficultyHud();
+}
+
+// 从指定波开始（复用各波的地图切换/刷怪逻辑）
+function jumpToWave(n) {
+  if (n <= 2) { wave = n - 1; startNextWave(); return; }           // 1-2：小镇普通波
+  if (n === 3) { wave = 3; spawnBoss(); return; }                  // 3：巨兽 BOSS
+  if (n === 4) { transitionToDesert(); wave = 沙漠.波数 - 1; startNextWave(); return; }   // 4：沙漠尸潮
+  if (n === 5) { transitionToDesert(); wave = 步枪Boss.出现波数; spawnRifleBoss(); return; } // 5：沙漠尖兵
+  if (n === 6) { transitionToBarracks(); wave = 军营.波数 - 1; startNextWave(); return; }  // 6：军营飞尸
+  if (n === 7) { transitionToFortress(); wave = 要塞.波数 - 1; startNextWave(); return; }  // 7：军民要塞
+  if (n === 8) { transitionToFortress(); wave = 空战.波数 - 1; startNextWave(); return; }  // 8：空战
+}
+
+// 简单模式的助战单位：地面波给队友，空战给僚机；困难模式什么都不给
+function spawnDifficultyHelpers() {
+  for (const tm of teammates) tm.remove(); teammates = [];
+  for (const a of allyJets) a.remove(); allyJets = [];
+  if (difficulty !== 'easy') return;
+  if (jetMode) {
+    for (let i = 0; i < 队友.空战友机数; i++) {
+      const side = i === 0 ? -1 : 1;
+      const p = jetPos.clone(); p.x += side * 16; p.y += side * 3;
+      allyJets.push(new AllyJet(scene, p, side, 空战));
+    }
+  } else {
+    for (let i = 0; i < 队友.简单数量; i++) {
+      const p = new THREE.Vector3(player.pos.x + (i === 0 ? -2.2 : 2.2), 0, player.pos.z + 2);
+      teammates.push(new Teammate(scene, p, i, 队友));
+    }
+  }
+}
+
+function updateDifficultyHud() {
+  hud.diffTag.style.display = 'block';
+  hud.diffTag.textContent = difficulty === 'easy' ? `简单 · 队友 ×${jetMode ? 队友.空战友机数 : 队友.简单数量}` : '困难 · 孤身';
+}
+
+// 地面队友：跟随玩家、自动打丧尸（命中即伤害，计入击杀）
+function updateTeammates(dt) {
+  if (!teammates.length) return;
+  for (const tm of teammates) {
+    tm.update(dt, player.pos, player.yaw, enemies, (enemy, dmg, muzzle) => {
+      const hitPt = enemy.root.position.clone(); hitPt.y = 1.0;
+      effects.addTracer(muzzle, hitPt, 0x9fe6ff);
+      effects.addSparks(hitPt, _uz, 5, 0xffaa55);
+      const dir = new THREE.Vector3(enemy.root.position.x - muzzle.x, 0, enemy.root.position.z - muzzle.z).normalize();
+      const killed = enemy.takeDamage(dmg, dir, effects, hitPt);
+      if (killed) onKill(enemy, false);
+    });
+  }
 }
 
 // 避免和 config 的中文名冲突，这里包一层
@@ -598,11 +731,7 @@ function onWin() {
   );
   setTimeout(() => {
     const btn = el('restart-btn');
-    if (btn) btn.addEventListener('click', () => {
-      startOverlay.querySelector('.start-title').textContent = '丧尸围城';
-      canvas.requestPointerLock();
-      startFreshGame();
-    });
+    if (btn) btn.addEventListener('click', returnToMenu);
   }, 0);
 }
 
@@ -705,7 +834,7 @@ function onFinalWin() {
   );
   setTimeout(() => {
     const btn = el('restart-btn');
-    if (btn) btn.addEventListener('click', () => { canvas.requestPointerLock(); startFreshGame(); });
+    if (btn) btn.addEventListener('click', returnToMenu);
   }, 0);
 }
 
@@ -829,6 +958,7 @@ function exitJetMode() {
   document.body.classList.remove('jetmode');
   if (playerJet) { playerJet.remove(); playerJet = null; }
   for (const z of zombieJets) z.remove(); zombieJets = [];
+  for (const a of allyJets) a.remove(); allyJets = [];
   for (const b of jetBullets) scene.remove(b.mesh); jetBullets = [];
   for (const m of jetMissiles) scene.remove(m.mesh); jetMissiles = [];
   for (const b of enemyBullets) scene.remove(b.mesh); enemyBullets = [];
@@ -960,6 +1090,11 @@ function updateJetMode(dt, time) {
     if (jz.dead) continue;
     const ev = jz.update(dt, jetPos);
     if (ev && ev.fire) spawnJetBullet(ev.from, ev.dir, cfg.敌机, jetEnemyTracerMat, enemyBullets);
+  }
+  // 友军僚机（简单模式）：跟飞 + 朝敌机开火（复用玩家机炮弹，打僵尸战机）
+  for (const a of allyJets) {
+    const ev = a.update(dt, jetPos, _jfwd, zombieJets);
+    if (ev && ev.fire) spawnJetBullet(ev.from, ev.dir, cfg.机炮, jetTracerMat, jetBullets);
   }
   // 敌机子弹命中玩家
   for (let i = enemyBullets.length - 1; i >= 0; i--) {
@@ -1666,11 +1801,7 @@ function onPlayerDeath() {
   );
   setTimeout(() => {
     const btn = el('restart-btn');
-    if (btn) btn.addEventListener('click', () => {
-      startOverlay.querySelector('.start-title').textContent = '丧尸围城';
-      canvas.requestPointerLock();
-      startFreshGame();
-    });
+    if (btn) btn.addEventListener('click', returnToMenu);
   }, 0);
 }
 
@@ -1828,6 +1959,8 @@ function frame() {
       }
     } else if (hud.tankHint.style.display !== 'none') hud.tankHint.style.display = 'none';
 
+    // 简单模式队友：跟随 + 自动打丧尸
+    updateTeammates(simDt);
     // 技能（冰冻）：更新特效/冷却 + HUD
     abilities.update(simDt, enemies, player);
     updateSkillsHud();
@@ -1996,6 +2129,10 @@ window.__game = {
   get score() { return score; },
   get wave() { return wave; },
   forceStart() { startFreshGame(); startOverlay.style.display = 'none'; },
+  startAt(n, diff) { pendingWave = n; difficulty = diff || 'hard'; startFreshGame(); startOverlay.style.display = 'none'; return { wave, biome: scene._biome, jetMode, teammates: teammates.length, allyJets: allyJets.length, enemies: enemies.length }; },
+  get teammateCount() { return teammates.length; },
+  get allyJetCount() { return allyJets.length; },
+  menuState() { return { state, menuStage, selWave, selDiff, difficulty, pendingWave }; },
   get extractionActive() { return extractionActive; },
   get holdProgress() { return holdProgress; },
   get extraction() { return extraction; },

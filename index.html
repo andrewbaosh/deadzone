@@ -237,6 +237,7 @@
       <div id="weapon-hint">1-8 换武器 · Z 冷冻发射器 X 冰罐 V 震撼弹 · Q 切上一把 · 右键/F 开镜 · R 换弹 · M 音乐</div>
     </div>
     <div id="jet-hint" style="position:absolute;right:14px;bottom:12px;z-index:12;color:#bcd6ff;font-size:12px;letter-spacing:1px;text-shadow:0 1px 3px #000;opacity:.85;">✈ 鼠标转向 · W/S 油门 · 左键机炮 · 长按 <b>2</b> 锁定导弹（松开发射）</div>
+    <div id="diff-tag" style="display:none;position:absolute;left:16px;top:150px;z-index:12;font-weight:800;letter-spacing:1px;color:#8fe6b0;text-shadow:0 1px 3px #000;font-size:13px;">困难 · 孤身</div>
     <div id="screen-flash" style="position:fixed;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:30;transition:opacity .55s ease-out;"></div>
     <div id="nuke-timer" style="display:none;position:absolute;left:50%;top:12%;transform:translateX(-50%);z-index:13;padding:8px 22px;border-radius:8px;background:rgba(60,10,6,.8);border:2px solid #ff3b2f;color:#ffdd55;font-weight:800;font-size:22px;letter-spacing:2px;text-shadow:0 2px 6px #000;animation:nuke-pulse .8s infinite;">☢ 核弹爆炸倒计时</div>
     <style>@keyframes nuke-pulse{0%,100%{opacity:1}50%{opacity:.5}}</style>
@@ -388,8 +389,35 @@
       <span class="key">R</span><span>换弹</span>
       <span class="key">M</span><span>背景音乐 开 / 关</span>
     </div>
-    <div class="start-cta">点击开始（触摸板可用，会锁定光标 · Esc 暂停）</div>
+    <div id="level-select">
+      <div class="ls-title" id="ls-title">🎮 选关卡（每一波 = 一关）</div>
+      <div id="ls-waves" class="ls-row"></div>
+      <div id="ls-diff" style="display:none;">
+        <div class="ls-title" style="margin-top:22px;">选难度</div>
+        <div class="ls-row">
+          <div class="ls-card diff" data-diff="easy"><b>简单</b><span>2 名队友并肩作战</span></div>
+          <div class="ls-card diff" data-diff="hard"><b>困难</b><span>孤身一人（丧尸/血量不变）</span></div>
+        </div>
+      </div>
+      <div class="ls-hint" id="ls-hint">← → 选择 · 数字键直接选波 · Enter 确认 · Esc 返回</div>
+    </div>
   </div>
+  <style>
+    #level-select { display:flex; flex-direction:column; align-items:center; }
+    #level-select .ls-title { font-size:18px; font-weight:800; letter-spacing:2px; color:#cfe3ff; margin-bottom:14px; }
+    #level-select .ls-row { display:flex; flex-wrap:wrap; gap:10px; justify-content:center; max-width:760px; }
+    #level-select .ls-card { min-width:104px; padding:12px 14px; border-radius:9px; cursor:pointer;
+      background:rgba(30,42,64,.6); border:2px solid rgba(120,150,200,.35); color:#cfe3ff;
+      display:flex; flex-direction:column; align-items:center; gap:3px; transition:all .12s; }
+    #level-select .ls-card .ls-n { font-size:20px; font-weight:900; color:#8fd0ff; }
+    #level-select .ls-card .ls-name { font-size:12px; opacity:.85; }
+    #level-select .ls-card b { font-size:20px; font-weight:900; }
+    #level-select .ls-card span { font-size:12px; opacity:.85; }
+    #level-select .ls-card.selected { border-color:#00ff9c; background:rgba(0,90,60,.45); color:#fff;
+      box-shadow:0 0 0 3px rgba(0,255,156,.25); transform:translateY(-2px); }
+    #level-select .ls-card.diff { min-width:200px; }
+    #level-select .ls-hint { margin-top:20px; font-size:13px; opacity:.7; color:#9fd0ff; letter-spacing:1px; }
+  </style>
 
   <script type="module" src="/src/main.js"></script>
 </body>
