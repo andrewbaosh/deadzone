@@ -858,7 +858,7 @@ function fireJetMissile(target) {
   const nose = playerJet.noseWorld(_jtmp).clone();
   const geo = new THREE.CylinderGeometry(0.13, 0.13, 1.5, 8); geo.rotateX(Math.PI / 2);
   const m = new THREE.Mesh(geo, jetMissileMat); m.position.copy(nose); scene.add(m);
-  jetMissiles.push({ mesh: m, vel: _jfwd.clone().multiplyScalar(空战.锁定导弹.速度 * 0.55), target, life: 空战.锁定导弹.存活 });
+  jetMissiles.push({ mesh: m, vel: _jfwd.clone().multiplyScalar(空战.锁定导弹.速度 * 0.55), target, lostTimer: 0, age: 0 });
   playRocketFire();
 }
 
@@ -928,20 +928,29 @@ function updateJetMode(dt, time) {
   }
   // 导弹追踪
   for (let i = jetMissiles.length - 1; i >= 0; i--) {
-    const mo = jetMissiles[i]; mo.life -= dt;
-    let boom = false;
+    const mo = jetMissiles[i]; mo.age += dt;
+    let boom = false, expire = false;
     if (mo.target && !mo.target.dead) {
+      // 目标还活着：一直追踪，直到打中为止（不计时自毁）
       const to = _jtmp.copy(mo.target.root.position).sub(mo.mesh.position);
       const dist = to.length(); if (dist > 0.001) to.multiplyScalar(1 / dist);
       const cur = mo.vel.clone().normalize();
-      cur.lerp(to, Math.min(1, cfg.锁定导弹.转向 * dt)).normalize();
-      const sp = Math.min(cfg.锁定导弹.速度, mo.vel.length() + 140 * dt);
+      // 越靠近转得越狠，避免高速掠过目标兜圈子（保证咬死目标）
+      const turnGain = cfg.锁定导弹.转向 * (dist < 30 ? 2.6 : 1.2);
+      cur.lerp(to, Math.min(1, turnGain * dt)).normalize();
+      // 近距离主动减速，让转弯半径更小，能贴上机动的敌机
+      const maxSp = dist < 22 ? cfg.锁定导弹.速度 * 0.6 : cfg.锁定导弹.速度;
+      const sp = Math.min(maxSp, mo.vel.length() + 140 * dt);
       mo.vel.copy(cur).multiplyScalar(sp);
       mo.mesh.quaternion.setFromUnitVectors(_uz, cur);
       if (dist < cfg.锁定导弹.命中半径) { hitZombieJet(mo.target, cfg.锁定导弹.伤害); boom = true; }
-    } else { boom = mo.life <= 3; }   // 目标没了：撑一会儿自毁
+    } else {
+      // 目标被别的打掉了：短暂盘旋后自毁（避免空追）
+      mo.lostTimer += dt; if (mo.lostTimer > 1.2) expire = true;
+    }
+    if (mo.age > 30) expire = true;   // 极端情况兜底，正常都会先命中
     mo.mesh.position.addScaledVector(mo.vel, dt);
-    if (boom || mo.life <= 0) {
+    if (boom || expire) {
       effects.addExplosion(mo.mesh.position.clone(), 4); playExplosion();
       scene.remove(mo.mesh); jetMissiles.splice(i, 1);
     }
@@ -2020,7 +2029,7 @@ window.__game = {
   get inTank() { return inTank; },
   // 第八波空战测试钩子
   forceJet() { if (boss) { boss.remove(); boss = null; } bossActive = false; wave = 空战.波数 - 1; startNextWave(); return { jetMode, enemyJets: zombieJets.length, playerJet: !!playerJet, pos: jetPos.toArray().map(n => +n.toFixed(1)) }; },
-  get jetState() { return { jetMode, enemyJets: zombieJets.map(z => ({ hp: z.hp, dead: z.dead })), bullets: jetBullets.length, missiles: jetMissiles.length, enemyBullets: enemyBullets.length, lock: !!jetLockTarget, jetPos: jetPos.toArray().map(n => +n.toFixed(1)), hp: Math.ceil(player.hp) }; },
+  get jetState() { const m0 = jetMissiles[0]; const mDist = (m0 && m0.target && !m0.target.dead) ? +m0.mesh.position.distanceTo(m0.target.root.position).toFixed(1) : null; return { jetMode, enemyJets: zombieJets.map(z => ({ hp: z.hp, dead: z.dead })), bullets: jetBullets.length, missiles: jetMissiles.length, missileDist: mDist, enemyBullets: enemyBullets.length, lock: !!jetLockTarget, jetPos: jetPos.toArray().map(n => +n.toFixed(1)), hp: Math.ceil(player.hp) }; },
   jetCannon(hold) { mouseHeld = !!hold; return mouseHeld; },
   jetLockKey(hold) { player.keys['Digit2'] = !!hold; return !!hold; },
   jetKillAll() { for (const z of [...zombieJets]) hitZombieJet(z, 99999); return zombieJets.length; },
