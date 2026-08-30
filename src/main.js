@@ -30,8 +30,9 @@ import { Bomber } from './bomber.js';
 import { Tank } from './tank.js';
 import { PlayerJet, ZombieJet, AllyJet } from './jet.js';
 import { Teammate } from './teammate.js';
+import { Wave9Boss, AAVehicle, TankVehicle } from './groundunits.js';
 import { Abilities } from './abilities.js';
-import { BOSS, 沙漠, 步枪Boss, 军营, 要塞, 轰炸机, 坦克, 技能, 支援, 空战, 队友 } from './config/gameplay.js';
+import { BOSS, 沙漠, 步枪Boss, 军营, 要塞, 轰炸机, 坦克, 技能, 支援, 空战, 空战九, 队友 } from './config/gameplay.js';
 
 /* ============ 渲染基础 ============ */
 const canvas = document.getElementById('game');
@@ -171,6 +172,14 @@ let jetMissiles = [];           // 玩家锁定导弹
 let enemyBullets = [];          // 敌机子弹
 let jetCannonCd = 0, jetMissileCd = 0, jetLockTimer = 0, jetLockTarget = null, jetLastYaw = 0, jetRoll = 0, jetWon = false;
 let allyJets = [];
+// 第九波：空中打 BOSS（召唤防空车/坦克小弟）+ 三武器(1机炮/2反坦克/3空对地)
+let jetWave = 8;
+let jetWeapon = 1;
+let w9Boss = null, w9Units = [];
+let atMissiles = [], agMissiles = [];        // 反坦克导弹(直射AoE) / 空对地锁定导弹(追踪)
+let atAmmo = 0, agAmmo = 0, atChargeT = 0, agChargeT = 0;
+let w9WeaponCd = 0, w9LockTarget = null, w9WarnT = 0, w9BeepT = 0;
+const atMissileMat = new THREE.MeshStandardMaterial({ color: 0xbcbcbc, emissive: 0x442200, roughness: 0.4 });
 // 选关卡 + 难度（简单=多2队友；困难=自己）
 let teammates = [];
 let difficulty = 'hard';        // 'easy' | 'hard'
@@ -219,6 +228,8 @@ const hud = {
   nukeTimer: el('nuke-timer'),
   jetLock: el('jet-lock'),
   jetReticle: el('jet-reticle'),
+  jetWeapon: el('jet-weapon'),
+  jetWarn: el('jet-warn'),
   diffTag: el('diff-tag'),
 };
 
@@ -243,7 +254,7 @@ function beginGame() {
 const WAVE_MENU = [
   { n: 1, name: '小镇 · 序' }, { n: 2, name: '小镇 · 进' }, { n: 3, name: '巨兽 BOSS' },
   { n: 4, name: '沙漠尸潮' }, { n: 5, name: '沙漠尖兵' }, { n: 6, name: '军营飞尸' },
-  { n: 7, name: '军民要塞' }, { n: 8, name: '空战' },
+  { n: 7, name: '军民要塞' }, { n: 8, name: '空战' }, { n: 9, name: '空中 BOSS' },
 ];
 const lsWaves = el('ls-waves'), lsDiff = el('ls-diff'), lsHint = el('ls-hint'), lsTitle = el('ls-title'), lsStart = el('ls-start');
 function buildWaveCards() {
@@ -282,7 +293,7 @@ function returnToMenu() {
 }
 function menuKey(e) {
   e.preventDefault();
-  if (e.code >= 'Digit1' && e.code <= 'Digit8') { selWave = +e.code.slice(5); refreshMenu(); }
+  if (e.code >= 'Digit1' && e.code <= 'Digit9') { selWave = +e.code.slice(5); refreshMenu(); }
   else if (e.code === 'ArrowLeft' || e.code === 'KeyA') { selDiff = 0; refreshMenu(); }
   else if (e.code === 'ArrowRight' || e.code === 'KeyD') { selDiff = 1; refreshMenu(); }
   else if (e.code === 'Enter' || e.code === 'Space') startGame();
@@ -343,6 +354,10 @@ document.addEventListener('keydown', (e) => {
     if (e.code === 'Escape') { cancelAiming(); return; }
   }
   player.onKey(e.code, true);
+  // 第九波空中打 BOSS：1/2/3 切换 机炮 / 反坦克导弹 / 空对地锁定导弹
+  if (jetMode && jetWave === 9 && (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3')) {
+    jetWeapon = +e.code.slice(5); w9WeaponCd = 0; updateW9WeaponHud(); flashWaveBanner(['', '① 机炮', '② 反坦克导弹', '③ 空对地锁定导弹'][jetWeapon]);
+  }
   // 空战里只用 机炮(左键)/锁定导弹(长按2)/WS 油门，屏蔽地面武器与技能按键
   if (!jetMode) {
   if (e.code === 'KeyR') weapons.startReload();
@@ -366,7 +381,7 @@ document.addEventListener('keydown', (e) => {
   if (e.code === 'KeyM') { const on = toggleMusic(); flashWaveBanner(on ? '♪ 音乐开' : '♪ 音乐关'); }
   if (e.code === 'F7') { quality.cycleTier(); flashWaveBanner('画质 ' + quality.tierName); }
   if (e.code === 'F8') { statsPanel.toggle(); }
-  if (['KeyW','KeyA','KeyS','KeyD','Space','KeyR','KeyQ','KeyE','KeyF','KeyM','KeyZ','KeyX','KeyV','KeyG','Digit1','Digit2','Digit3','Digit4','Digit5','Digit6','Digit7','Digit8'].includes(e.code)) e.preventDefault();
+  if (['KeyW','KeyA','KeyS','KeyD','Space','KeyR','KeyQ','KeyE','KeyF','KeyM','KeyZ','KeyX','KeyV','KeyG','Digit1','Digit2','Digit3','Digit4','Digit5','Digit6','Digit7','Digit8','Digit9'].includes(e.code)) e.preventDefault();
 });
 document.addEventListener('keyup', (e) => player.onKey(e.code, false));
 
@@ -379,7 +394,12 @@ document.addEventListener('mousemove', (e) => {
 document.addEventListener('mousedown', (e) => {
   if (state === STATE.DEAD) return;
   if (document.pointerLockElement !== canvas) return;
-  if (e.button === 0) { if (aimingStrike) { confirmAiming(); return; } mouseHeld = true; if (!inTank && !jetMode) weapons.setTrigger(true); }
+  if (e.button === 0) {
+    if (aimingStrike) { confirmAiming(); return; }
+    mouseHeld = true;
+    if (jetMode && jetWave === 9 && jetWeapon !== 1) { fireW9Weapon(); return; }   // 导弹：点一下发一发
+    if (!inTank && !jetMode) weapons.setTrigger(true);
+  }
   if (e.button === 2) { rightHeld = true; }
 });
 document.addEventListener('mouseup', (e) => {
@@ -471,6 +491,7 @@ function jumpToWave(n) {
   if (n === 6) { transitionToBarracks(); wave = 军营.波数 - 1; startNextWave(); return; }  // 6：军营飞尸
   if (n === 7) { transitionToFortress(); wave = 要塞.波数 - 1; startNextWave(); return; }  // 7：军民要塞
   if (n === 8) { transitionToFortress(); wave = 空战.波数 - 1; startNextWave(); return; }  // 8：空战
+  if (n === 9) { transitionToFortress(); wave = 空战九.波数; enterJetMode(9); return; }     // 9：空中打 BOSS
 }
 
 // 简单模式的助战单位：地面波给队友，空战给僚机；困难模式什么都不给
@@ -543,7 +564,8 @@ function startNextWave() {
   // 第 7 波 = 军民要塞（超大图）：僵尸轰炸机(投僵尸) + 友军坦克，清空即最终通关
   if (wave === 要塞.波数) { spawnBombersAndTank(); return; }
   // 第八波 = 空战：升空驾驶战斗机 vs 僵尸战斗机
-  if (wave === 空战.波数) { enterJetMode(); return; }
+  if (wave === 空战.波数) { enterJetMode(8); return; }
+  if (wave === 空战九.波数) { enterJetMode(9); return; }
   let count = Math.round(波次.第一波数量 + (wave - 1) * 波次.每波增加);
   // 波次曲线：每隔几波来一次小高潮（数量激增）
   const isElite = 波次曲线.启用扩展曲线 && wave % 波次曲线.精英波间隔 === 0;
@@ -902,13 +924,21 @@ function jetForwardVec(out) {
 }
 function angDelta(a, b) { let d = a - b; while (d > Math.PI) d -= Math.PI * 2; while (d < -Math.PI) d += Math.PI * 2; return d; }
 
-function enterJetMode() {
-  jetMode = true; jetWon = false;
-  // 清掉一切地面残留
+function enterJetMode(w = 8) {
+  jetMode = true; jetWon = false; jetWave = w;
+  document.body.classList.toggle('jetw9', w === 9);
+  const cfg = w === 9 ? 空战九 : 空战;
+  // 清掉一切地面残留 + 上一轮空战残留
   for (const en of enemies) en.remove(); enemies = [];
   for (const bm of bombers) bm.remove(); bombers = [];
   for (const zb of zombieBombs) zb.root.parent && scene.remove(zb.root); zombieBombs = [];
   if (tank) { tank.remove(); tank = null; } inTank = false;
+  for (const z of zombieJets) z.remove(); zombieJets = [];
+  for (const a of allyJets) a.remove(); allyJets = [];
+  for (const b of jetBullets) scene.remove(b.mesh); jetBullets = [];
+  for (const m of jetMissiles) scene.remove(m.mesh); jetMissiles = [];
+  for (const b of enemyBullets) scene.remove(b.mesh); enemyBullets = [];
+  clearWave9();
   clearStrikes();
   document.body.classList.add('jetmode');   // CSS 隐藏地面 HUD
   weapons.viewGroup.visible = false;
@@ -917,36 +947,60 @@ function enterJetMode() {
   // 玩家满血升空
   player.hp = player.maxHp; player.alive = true;
   camera.fov = 手感.视野角度; camera.updateProjectionMatrix();
-  // 造玩家战机 + 敌机
   if (playerJet) playerJet.remove();
   playerJet = new PlayerJet(scene);
-  jetPos.set(0, 空战.巡航高度, 空战.竞技场 * 0.55);
+  jetPos.set(0, cfg.巡航高度, cfg.竞技场 * 0.55);
   player.pos.copy(jetPos);
   player.yaw = Math.PI; player.pitch = 0; jetLastYaw = Math.PI; jetRoll = 0;
-  jetBullets = []; jetMissiles = []; enemyBullets = []; zombieJets = [];
   jetCannonCd = jetMissileCd = jetLockTimer = 0; jetLockTarget = null;
-  for (let i = 0; i < 空战.敌机数; i++) {
-    const a = (i / 空战.敌机数) * Math.PI * 2;
-    const p = new THREE.Vector3(Math.cos(a) * 130, 空战.巡航高度 + (Math.random() - 0.5) * 36, Math.sin(a) * 130);
-    zombieJets.push(new ZombieJet(scene, p, 空战.敌机));
+
+  if (w === 9) {
+    wave = 空战九.波数;
+    jetWeapon = 1; w9WeaponCd = 0; w9LockTarget = null; w9WarnT = 0; w9BeepT = 0;
+    atAmmo = 空战九.反坦克导弹.弹数; agAmmo = 空战九.空对地.弹数; atChargeT = agChargeT = 0;
+    w9Boss = new Wave9Boss(scene, new THREE.Vector3(0, 0, -40), 空战九.boss);
+    hud.bossHud.style.display = 'block';
+    hud.bossName.textContent = '☢ ' + 空战九.boss.名字;
+    updateW9WeaponHud();
+    playWaveStart();
+    setCenterMsg('', false);
+    flashWaveBanner('☢ 空中歼灭 BOSS！1/2/3 换武器 · 打死 BOSS 通关');
+  } else {
+    for (let i = 0; i < 空战.敌机数; i++) {
+      const a = (i / 空战.敌机数) * Math.PI * 2;
+      const p = new THREE.Vector3(Math.cos(a) * 130, 空战.巡航高度 + (Math.random() - 0.5) * 36, Math.sin(a) * 130);
+      zombieJets.push(new ZombieJet(scene, p, 空战.敌机));
+    }
+    playWaveStart();
+    setCenterMsg('', false);
+    flashWaveBanner('✈ 升空！空战 · 左键机炮 · 长按 2 锁定导弹');
   }
-  playWaveStart();
-  setCenterMsg('', false);
-  flashWaveBanner('✈ 升空！空战 · 左键机炮 · 长按 2 锁定导弹');
+}
+
+function clearWave9() {
+  if (w9Boss) { w9Boss.remove(); w9Boss = null; }
+  for (const u of w9Units) u.remove(); w9Units = [];
+  for (const m of atMissiles) scene.remove(m.mesh); atMissiles = [];
+  for (const m of agMissiles) scene.remove(m.mesh); agMissiles = [];
+  w9LockTarget = null; w9WarnT = 0;
 }
 
 function exitJetMode() {
-  jetMode = false;
+  jetMode = false; jetWave = 8;
   document.body.classList.remove('jetmode');
+  document.body.classList.remove('jetw9');
   if (playerJet) { playerJet.remove(); playerJet = null; }
   for (const z of zombieJets) z.remove(); zombieJets = [];
   for (const a of allyJets) a.remove(); allyJets = [];
   for (const b of jetBullets) scene.remove(b.mesh); jetBullets = [];
   for (const m of jetMissiles) scene.remove(m.mesh); jetMissiles = [];
   for (const b of enemyBullets) scene.remove(b.mesh); enemyBullets = [];
+  clearWave9();
   jetLockTarget = null;
   hud.jetReticle.style.display = 'none';
   hud.jetLock.style.display = 'none';
+  hud.jetWeapon.style.display = 'none';
+  hud.jetWarn.style.display = 'none';
   minimap.setVisible(true);
 }
 
@@ -974,8 +1028,8 @@ function fireJetMissile(target) {
   playRocketFire();
 }
 
-function updateJetMode(dt, time) {
-  const cfg = 空战;
+function updateJetFlight(dt) {
+  const cfg = jetWave === 9 ? 空战九 : 空战;
   jetForwardVec(_jfwd);
   // 飞行：巡航 + W 加速 / S 减速
   let speed = cfg.玩家速度;
@@ -1006,7 +1060,12 @@ function updateJetMode(dt, time) {
     camera.position.y += (Math.random() - 0.5) * shakeAmount;
     shakeAmount *= Math.max(0, 1 - dt * 7);
   }
+}
 
+function updateJetMode(dt, time) {
+  updateJetFlight(dt);
+  if (jetWave === 9) { updateWave9(dt, time); return; }
+  const cfg = 空战;
   // ① 机炮（左键速射）
   jetCannonCd -= dt;
   if (mouseHeld && jetCannonCd <= 0) {
@@ -1090,7 +1149,8 @@ function updateJetMode(dt, time) {
 
   updateJetHud();
   // 全灭 = 最终通关
-  if (!jetWon && zombieJets.length === 0) { jetWon = true; onFinalWin(); }
+  // 空战(第八波)清空 → 进入第九波：空中打 BOSS
+  if (!jetWon && zombieJets.length === 0) { jetWon = true; flashWaveBanner('✈ 敌机全灭！BOSS 出现…'); enterJetMode(9); }
 }
 
 function updateJetHud() {
@@ -1115,6 +1175,195 @@ function updateJetHud() {
     hud.jetLock.style.display = 'none';
     hud.jetReticle.style.display = 'none';
   }
+}
+
+/* ============ 第九波：空中打 BOSS（召唤防空车/坦克小弟） ============ */
+function w9Targets() { const a = w9Units.filter((u) => !u.dead); if (w9Boss && !w9Boss.dead) a.push(w9Boss); return a; }
+
+// 反坦克导弹：直射，撞地/撞目标炸开，半径内伤害
+function fireAntiTank() {
+  if (atAmmo <= 0) return;
+  atAmmo--; if (atAmmo === 0) atChargeT = 空战九.反坦克导弹.充能间隔;
+  const nose = playerJet.noseWorld(_jtmp).clone();
+  const geo = new THREE.CylinderGeometry(0.16, 0.16, 1.7, 8); geo.rotateX(Math.PI / 2);
+  const m = new THREE.Mesh(geo, atMissileMat); m.position.copy(nose); m.quaternion.setFromUnitVectors(_uz, _jfwd); scene.add(m);
+  atMissiles.push({ mesh: m, vel: _jfwd.clone().multiplyScalar(空战九.反坦克导弹.弹速), life: 空战九.反坦克导弹.存活 });
+  playRocketFire(); updateW9WeaponHud();
+}
+// 空对地锁定导弹：追踪已锁定的载具/BOSS
+function fireAirGround() {
+  if (agAmmo <= 0 || !w9LockTarget || w9LockTarget.dead) return;
+  agAmmo--; if (agAmmo === 0) agChargeT = 空战九.空对地.充能间隔;
+  const nose = playerJet.noseWorld(_jtmp).clone();
+  const geo = new THREE.CylinderGeometry(0.13, 0.13, 1.5, 8); geo.rotateX(Math.PI / 2);
+  const m = new THREE.Mesh(geo, jetMissileMat); m.position.copy(nose); scene.add(m);
+  agMissiles.push({ mesh: m, vel: _jfwd.clone().multiplyScalar(空战九.空对地.弹速 * 0.55), target: w9LockTarget, age: 0 });
+  playRocketFire(); updateW9WeaponHud();
+}
+// 左键（或按键）触发当前武器：机炮连发在 update 里；导弹这里发一发
+function fireW9Weapon() {
+  if (jetWeapon === 2 && w9WeaponCd <= 0) { fireAntiTank(); w9WeaponCd = 空战九.反坦克导弹.冷却; }
+  else if (jetWeapon === 3 && w9WeaponCd <= 0) { fireAirGround(); w9WeaponCd = 空战九.空对地.冷却; }
+}
+
+function w9SpawnMinion() {
+  if (w9Units.filter((u) => !u.dead).length >= 空战九.boss.最多小弟) return;
+  const a = Math.random() * Math.PI * 2, r = 20 + Math.random() * 30;
+  const p = new THREE.Vector3(w9Boss.root.position.x + Math.cos(a) * r, 0, w9Boss.root.position.z + Math.sin(a) * r);
+  // 交替刷防空车 / 坦克
+  const aa = (w9Units.length % 2 === 0);
+  w9Units.push(aa ? new AAVehicle(scene, p, 空战九.防空车) : new TankVehicle(scene, p, 空战九.坦克));
+  effects.addExplosion(p.clone().setY(1), 3);
+}
+
+function killW9Unit(u) { effects.addExplosion(u.root.position.clone().setY(1.2), 5); playExplosion(); addShake(0.18 * 手感.屏幕震动); u.remove(); }
+function hitW9(target, dmg) {
+  earnDamage(dmg);
+  const ap = target.aimPoint(new THREE.Vector3());
+  effects.addSparks(ap, _uz, 6, 0xffcc55);
+  if (target.takeDamage(dmg)) {
+    if (target === w9Boss) return;   // BOSS 死亡在主循环里统一处理
+    killW9Unit(target); const i = w9Units.indexOf(target); if (i >= 0) w9Units.splice(i, 1); kills++;
+  }
+}
+
+function updateWave9(dt, time) {
+  const cfg = 空战九;
+  // 武器冷却 + 导弹弹药回充（打光后每 2 秒回 1 发）
+  if (w9WeaponCd > 0) w9WeaponCd -= dt;
+  if (atAmmo < cfg.反坦克导弹.弹数 && atChargeT > 0) { atChargeT -= dt; if (atChargeT <= 0) { atAmmo++; if (atAmmo < cfg.反坦克导弹.弹数) atChargeT = cfg.反坦克导弹.充能间隔; } }
+  if (agAmmo < cfg.空对地.弹数 && agChargeT > 0) { agChargeT -= dt; if (agChargeT <= 0) { agAmmo++; if (agAmmo < cfg.空对地.弹数) agChargeT = cfg.空对地.充能间隔; } }
+
+  // ① 机炮：无限弹，按住左键连发
+  if (jetWeapon === 1) {
+    jetCannonCd -= dt;
+    if (mouseHeld && jetCannonCd <= 0) {
+      jetCannonCd = 1 / cfg.机炮.射速;
+      const nose = playerJet.noseWorld(_jtmp).clone();
+      spawnJetBullet(nose, _jfwd, cfg.机炮, jetTracerMat, jetBullets);
+      addShake(0.02 * 手感.屏幕震动); playShot('步枪');
+    }
+  }
+  // ③ 空对地：选中该武器时自动锁定正前方最近的载具/BOSS
+  if (jetWeapon === 3) {
+    let best = null, bestD = Infinity;
+    for (const t of w9Targets()) {
+      const ap = t.aimPoint(_jtmp); const to = _jtmp.sub(jetPos);
+      const dist = to.length(); if (dist > cfg.空对地.锁定范围) continue;
+      const dot = to.normalize().dot(_jfwd);        // 在机头前方
+      if (dot > 0.3 && dist < bestD) { bestD = dist; best = t; }
+    }
+    w9LockTarget = best;
+  } else w9LockTarget = null;
+
+  // 机炮弹飞行 + 命中 BOSS/小弟
+  for (let i = jetBullets.length - 1; i >= 0; i--) {
+    const b = jetBullets[i]; b.mesh.position.addScaledVector(b.vel, dt); b.life -= dt;
+    let hit = false;
+    for (const t of w9Targets()) {
+      const ap = t.aimPoint(_jtmp);
+      const rr = (t === w9Boss ? 7 : 3.2);
+      if (b.mesh.position.distanceToSquared(ap) <= rr * rr) { hitW9(t, cfg.机炮.伤害); hit = true; break; }
+    }
+    if (hit || b.life <= 0 || b.mesh.position.y < 0) { scene.remove(b.mesh); jetBullets.splice(i, 1); }
+  }
+  // 反坦克导弹：直射，撞地/近目标 → 半径内 AoE
+  for (let i = atMissiles.length - 1; i >= 0; i--) {
+    const mo = atMissiles[i]; mo.mesh.position.addScaledVector(mo.vel, dt); mo.life -= dt;
+    let boom = mo.mesh.position.y <= 0.6 || mo.life <= 0;
+    if (!boom) { for (const t of w9Targets()) { if (mo.mesh.position.distanceToSquared(t.aimPoint(_jtmp)) <= 9) { boom = true; break; } } }
+    if (boom) {
+      const c = mo.mesh.position.clone();
+      effects.addExplosion(c, cfg.反坦克导弹.半径); playExplosion(); addShake(0.2 * 手感.屏幕震动);
+      for (const t of [...w9Targets()]) { if (t.aimPoint(_jtmp).distanceTo(c) <= cfg.反坦克导弹.半径) hitW9(t, cfg.反坦克导弹.伤害); }
+      scene.remove(mo.mesh); atMissiles.splice(i, 1);
+    }
+  }
+  // 空对地锁定导弹：追踪目标直到命中
+  for (let i = agMissiles.length - 1; i >= 0; i--) {
+    const mo = agMissiles[i]; mo.age += dt;
+    let boom = false;
+    if (mo.target && !mo.target.dead) {
+      const to = mo.target.aimPoint(_jtmp).sub(mo.mesh.position);
+      const dist = to.length(); if (dist > 0.001) to.multiplyScalar(1 / dist);
+      const cur = mo.vel.clone().normalize().lerp(to, Math.min(1, cfg.空对地.转向 * dt)).normalize();
+      const sp = Math.min(cfg.空对地.速度 ?? cfg.空对地.弹速, mo.vel.length() + 150 * dt);
+      mo.vel.copy(cur).multiplyScalar(sp);
+      mo.mesh.quaternion.setFromUnitVectors(_uz, cur);
+      if (dist < cfg.空对地.命中半径) { hitW9(mo.target, cfg.空对地.伤害); boom = true; }
+    } else boom = mo.age > 1.2;
+    mo.mesh.position.addScaledVector(mo.vel, dt);
+    if (boom || mo.age > 30) { effects.addExplosion(mo.mesh.position.clone(), 3.5); scene.remove(mo.mesh); agMissiles.splice(i, 1); }
+  }
+
+  // BOSS：不攻击，只召唤小弟
+  if (w9Boss && !w9Boss.dead) { if (w9Boss.update(dt)) w9SpawnMinion(); }
+
+  // 小弟：防空车(预警→扫射) / 坦克(慢速炮击)
+  let warn = Infinity;
+  for (const u of w9Units) {
+    if (u.dead) continue;
+    const ev = u.update(dt, jetPos);
+    if (ev) {
+      if (ev.warn != null) warn = Math.min(warn, ev.warn);
+      if (ev.fire) spawnEnemyShell(ev.from, ev.dir, ev.bullet);
+    }
+  }
+  // 防空车预警：屏幕底部提示音 + 读秒（3 秒后开始扫射）
+  if (warn < Infinity) {
+    w9WarnT = warn;
+    hud.jetWarn.style.display = 'block';
+    hud.jetWarn.textContent = `⚠ 防空车锁定你！${Math.ceil(warn)} 秒后开火 · 快机动！`;
+    w9BeepT -= dt; if (w9BeepT <= 0) { w9BeepT = 0.6; playHeartbeat(); }
+  } else { hud.jetWarn.style.display = 'none'; w9BeepT = 0; }
+
+  // 敌方子弹/炮弹命中玩家
+  for (let i = enemyBullets.length - 1; i >= 0; i--) {
+    const b = enemyBullets[i]; b.mesh.position.addScaledVector(b.vel, dt); b.life -= dt;
+    if (b.mesh.position.distanceToSquared(jetPos) <= b.r2) {
+      if (player.alive) damagePlayer(b.dmg, time, b.mesh.position.clone());
+      scene.remove(b.mesh); enemyBullets.splice(i, 1); continue;
+    }
+    if (b.life <= 0 || b.mesh.position.y < -2) { scene.remove(b.mesh); enemyBullets.splice(i, 1); }
+  }
+  // 清理死掉的小弟
+  for (let i = w9Units.length - 1; i >= 0; i--) if (w9Units[i].dead) w9Units.splice(i, 1);
+
+  // BOSS 血条 + 武器 HUD
+  if (w9Boss) hud.bossFill.style.width = `${(w9Boss.hp / w9Boss.maxHp) * 100}%`;
+  updateW9WeaponHud();
+  hud.wave.textContent = 空战九.波数;
+  hud.enemiesLeft.textContent = w9Units.filter((u) => !u.dead).length;
+
+  // 打死 BOSS = 通关：它召唤的小弟一起死
+  if (!jetWon && w9Boss && w9Boss.dead) {
+    jetWon = true;
+    for (const u of w9Units) killW9Unit(u); w9Units = [];
+    effects.addExplosion(w9Boss.aimPoint(new THREE.Vector3()), 16); playExplosion(); addShake(1.2 * 手感.屏幕震动); flashScreen(0.85);
+    onFinalWin();
+  }
+}
+
+// 敌方子弹（防空车机枪弹 / 坦克炮弹），命中玩家掉血
+function spawnEnemyShell(pos, dir, bcfg) {
+  const size = bcfg.大 ? 0.5 : 0.22;
+  const m = new THREE.Mesh(new THREE.BoxGeometry(size, size, size * 6), jetEnemyTracerMat);
+  m.position.copy(pos); m.quaternion.setFromUnitVectors(_uz, dir); scene.add(m);
+  enemyBullets.push({ mesh: m, vel: dir.clone().multiplyScalar(bcfg.弹速), life: 5, r2: bcfg.命中半径 * bcfg.命中半径, dmg: bcfg.伤害 });
+}
+
+function updateW9WeaponHud() {
+  const names = { 1: '① 机炮 · 无限', 2: `② 反坦克导弹 · ${atAmmo}/${空战九.反坦克导弹.弹数}`, 3: `③ 空对地锁定 · ${agAmmo}/${空战九.空对地.弹数}` };
+  hud.jetWeapon.style.display = 'block';
+  const charging = (jetWeapon === 2 && atAmmo === 0) || (jetWeapon === 3 && agAmmo === 0);
+  hud.jetWeapon.innerHTML = `<b>${names[jetWeapon]}</b>` + (charging ? ' <span style="color:#ffb0a0">· 补弹中…</span>' : '') +
+    `<div style="font-size:11px;opacity:.7;margin-top:2px;">1/2/3 换武器 · 左键开火</div>`;
+  // 空对地：锁定准星
+  if (jetWeapon === 3 && w9LockTarget && !w9LockTarget.dead) {
+    const v = w9LockTarget.aimPoint(new THREE.Vector3()).project(camera);
+    if (v.z < 1) { hud.jetReticle.style.display = 'block'; hud.jetReticle.style.left = `${(v.x * 0.5 + 0.5) * 100}%`; hud.jetReticle.style.top = `${(-v.y * 0.5 + 0.5) * 100}%`; }
+    else hud.jetReticle.style.display = 'none';
+  } else hud.jetReticle.style.display = 'none';
 }
 
 /* ============ 伤害积分召唤支援（打击体/齐射/区域效果） ============ */
@@ -2152,6 +2401,14 @@ window.__game = {
   jetCannon(hold) { mouseHeld = !!hold; return mouseHeld; },
   jetLockKey(hold) { player.keys['Digit2'] = !!hold; return !!hold; },
   jetKillAll() { for (const z of [...zombieJets]) hitZombieJet(z, 99999); return zombieJets.length; },
+  // 第九波空中打 BOSS 测试钩子
+  forceWave9() { if (boss) { boss.remove(); boss = null; } bossActive = false; wave = 空战九.波数; enterJetMode(9); return this.w9State(); },
+  w9State() { return { jetWave, jetWeapon, boss: w9Boss ? { hp: Math.round(w9Boss.hp), max: w9Boss.maxHp, dead: w9Boss.dead } : null, units: w9Units.map(u => ({ t: u.constructor.name, hp: Math.round(u.hp), dead: u.dead, st: u.state, stT: +(u.stateT ?? 0).toFixed(2) })), atAmmo, agAmmo, atMissiles: atMissiles.length, agMissiles: agMissiles.length, cannonBullets: jetBullets.length, enemyBullets: enemyBullets.length, warn: +w9WarnT.toFixed(1), lock: !!w9LockTarget, hp: Math.ceil(player.hp), state }; },
+  w9SwitchWeapon(n) { jetWeapon = n; w9WeaponCd = 0; return jetWeapon; },
+  w9Fire() { if (jetWeapon === 1) { mouseHeld = true; } else { fireW9Weapon(); } return true; },
+  w9CannonStop() { mouseHeld = false; return true; },
+  w9DamageBoss(d) { if (w9Boss) return hitW9(w9Boss, d), { hp: Math.round(w9Boss.hp), dead: w9Boss.dead }; return null; },
+  w9SpawnMinion() { if (w9Boss) w9SpawnMinion(); return w9Units.length; },
   get tankPos() { return tank ? tank.root.position.toArray().map(n => +n.toFixed(1)) : null; },
   board() { if (!tank) return false; player.pos.set(tank.root.position.x + 1, player.height, tank.root.position.z); tryToggleTank(); return inTank; },
   tankFire() { mouseHeld = true; return true; },

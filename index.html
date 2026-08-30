@@ -239,6 +239,10 @@
     </div>
     <div id="jet-hint" style="position:absolute;right:14px;bottom:12px;z-index:12;color:#bcd6ff;font-size:12px;letter-spacing:1px;text-shadow:0 1px 3px #000;opacity:.85;">✈ 鼠标转向 · W/S 油门 · 左键机炮 · 长按 <b>2</b> 锁定导弹（松开发射）</div>
     <div id="diff-tag" style="display:none;position:absolute;left:16px;top:150px;z-index:12;font-weight:800;letter-spacing:1px;color:#8fe6b0;text-shadow:0 1px 3px #000;font-size:13px;">困难 · 孤身</div>
+    <!-- 第九波：当前武器 + 弹药 -->
+    <div id="jet-weapon" style="display:none;position:absolute;right:16px;bottom:44px;z-index:12;text-align:right;color:#dff2ff;font-weight:800;letter-spacing:1px;text-shadow:0 1px 3px #000;font-size:15px;"></div>
+    <!-- 第九波：防空车开火预警（屏幕底部） -->
+    <div id="jet-warn" style="display:none;position:absolute;left:50%;bottom:15%;transform:translateX(-50%);z-index:13;padding:8px 22px;border-radius:8px;background:rgba(60,10,6,.82);border:2px solid #ff3b2f;color:#ffdd55;font-weight:800;font-size:18px;letter-spacing:1px;text-shadow:0 2px 6px #000;animation:nuke-pulse .5s infinite;">⚠ 防空车锁定你！</div>
     <div id="screen-flash" style="position:fixed;inset:0;background:#fff;opacity:0;pointer-events:none;z-index:30;transition:opacity .55s ease-out;"></div>
     <div id="nuke-timer" style="display:none;position:absolute;left:50%;top:12%;transform:translateX(-50%);z-index:13;padding:8px 22px;border-radius:8px;background:rgba(60,10,6,.8);border:2px solid #ff3b2f;color:#ffdd55;font-weight:800;font-size:22px;letter-spacing:2px;text-shadow:0 2px 6px #000;animation:nuke-pulse .8s infinite;">☢ 核弹爆炸倒计时</div>
     <style>@keyframes nuke-pulse{0%,100%{opacity:1}50%{opacity:.5}}</style>
@@ -288,6 +292,7 @@
       body.jetmode #dmg-points-wrap, body.jetmode #tank-hint, body.jetmode #minimap,
       body.jetmode #weapon-hint, body.jetmode #scope { display:none !important; }
       body.jetmode #jet-hint { display:block !important; }
+      body.jetw9 #jet-hint, body.jetw9 #jet-lock { display:none !important; }
       #jet-hint { display:none; }
     </style>
     <div id="skills">
