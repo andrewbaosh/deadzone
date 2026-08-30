@@ -32,7 +32,7 @@ import { PlayerJet, ZombieJet, AllyJet } from './jet.js';
 import { Teammate } from './teammate.js';
 import { Wave9Boss, AAVehicle, TankVehicle } from './groundunits.js';
 import { Abilities } from './abilities.js';
-import { BOSS, 沙漠, 步枪Boss, 军营, 要塞, 轰炸机, 坦克, 技能, 支援, 空战, 空战九, 队友 } from './config/gameplay.js';
+import { BOSS, 沙漠, 步枪Boss, 军营, 要塞, 轰炸机, 坦克, 技能, 支援, 空战, 空战九, 队友, 坠机 } from './config/gameplay.js';
 
 /* ============ 渲染基础 ============ */
 const canvas = document.getElementById('game');
@@ -179,6 +179,7 @@ let w9Boss = null, w9Units = [];
 let atMissiles = [], agMissiles = [];        // 反坦克导弹(直射AoE) / 空对地锁定导弹(追踪)
 let atAmmo = 0, agAmmo = 0, atChargeT = 0, agChargeT = 0;
 let w9WeaponCd = 0, w9LockTarget = null, w9WarnT = 0, w9BeepT = 0;
+let jetCrashCount = 0, jetCrashCd = 0;       // 撞地次数(伤害翻倍) + 冷却
 const atMissileMat = new THREE.MeshStandardMaterial({ color: 0xbcbcbc, emissive: 0x442200, roughness: 0.4 });
 // 选关卡 + 难度（简单=多2队友；困难=自己）
 let teammates = [];
@@ -191,6 +192,17 @@ const jetVel = new THREE.Vector3();
 const _jfwd = new THREE.Vector3();
 const _jtmp = new THREE.Vector3();
 const _uz = new THREE.Vector3(0, 0, 1);
+const _segA = new THREE.Vector3(), _segP = new THREE.Vector3();
+// 点到线段(a→b)的最近距离平方——用于高速子弹的“扫掠”命中，避免一帧穿过目标
+function distToSeg2(a, b, pt) {
+  const abx = b.x - a.x, aby = b.y - a.y, abz = b.z - a.z;
+  const apx = pt.x - a.x, apy = pt.y - a.y, apz = pt.z - a.z;
+  const ab2 = abx * abx + aby * aby + abz * abz;
+  let t = ab2 > 1e-9 ? (apx * abx + apy * aby + apz * abz) / ab2 : 0;
+  t = Math.max(0, Math.min(1, t));
+  const cx = a.x + abx * t - pt.x, cy = a.y + aby * t - pt.y, cz = a.z + abz * t - pt.z;
+  return cx * cx + cy * cy + cz * cz;
+}
 const jetTracerMat = new THREE.MeshBasicMaterial({ color: 0x9fe6ff, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
 const jetEnemyTracerMat = new THREE.MeshBasicMaterial({ color: 0xff6622, transparent: true, opacity: 0.95, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false });
 const jetMissileMat = new THREE.MeshStandardMaterial({ color: 0xdddddd, emissive: 0x552200, roughness: 0.4 });
@@ -518,17 +530,21 @@ function updateDifficultyHud() {
   hud.diffTag.textContent = difficulty === 'easy' ? `简单 · 队友 ×${jetMode ? 队友.空战友机数 : 队友.简单数量}` : '困难 · 孤身';
 }
 
-// 地面队友：跟随玩家、自动打丧尸（命中即伤害，计入击杀）
+// 地面队友：跟随玩家、自动打丧尸 + BOSS（命中即伤害，计入击杀）
 function updateTeammates(dt) {
   if (!teammates.length) return;
+  const targets = (boss && !boss.dead) ? [...enemies, boss] : enemies;
   for (const tm of teammates) {
-    tm.update(dt, player.pos, player.yaw, enemies, (enemy, dmg, muzzle) => {
-      const hitPt = enemy.root.position.clone(); hitPt.y = 1.0;
+    tm.update(dt, player.pos, player.yaw, targets, (target, dmg, muzzle) => {
+      const hitPt = target.root.position.clone(); hitPt.y = (target === boss ? 2.5 : 1.0);
       effects.addTracer(muzzle, hitPt, 0x9fe6ff);
       effects.addSparks(hitPt, _uz, 5, 0xffaa55);
-      const dir = new THREE.Vector3(enemy.root.position.x - muzzle.x, 0, enemy.root.position.z - muzzle.z).normalize();
-      const killed = enemy.takeDamage(dmg, dir, effects, hitPt);
-      if (killed) onKill(enemy, false);
+      if (target === boss) { boss.takeDamage(dmg, false, effects); earnDamage(dmg); }
+      else {
+        const dir = new THREE.Vector3(target.root.position.x - muzzle.x, 0, target.root.position.z - muzzle.z).normalize();
+        const killed = target.takeDamage(dmg, dir, effects, hitPt);
+        if (killed) onKill(target, false);
+      }
     });
   }
 }
@@ -953,6 +969,7 @@ function enterJetMode(w = 8) {
   player.pos.copy(jetPos);
   player.yaw = Math.PI; player.pitch = 0; jetLastYaw = Math.PI; jetRoll = 0;
   jetCannonCd = jetMissileCd = jetLockTimer = 0; jetLockTarget = null;
+  jetCrashCount = 0; jetCrashCd = 0;
 
   if (w === 9) {
     wave = 空战九.波数;
@@ -975,6 +992,8 @@ function enterJetMode(w = 8) {
     setCenterMsg('', false);
     flashWaveBanner('✈ 升空！空战 · 左键机炮 · 长按 2 锁定导弹');
   }
+  // 简单模式：升空即给僚机（无论从哪条路进空战都补上）
+  spawnDifficultyHelpers();
 }
 
 function clearWave9() {
@@ -1037,10 +1056,23 @@ function updateJetFlight(dt) {
   if (player.keys['KeyS']) speed *= 0.6;
   jetVel.copy(_jfwd).multiplyScalar(speed);
   jetPos.addScaledVector(jetVel, dt);
+  const preY = jetPos.y;                       // 夹到最低高度之前的高度：用来判断有没有往地里冲
   const R = cfg.竞技场, horiz = Math.hypot(jetPos.x, jetPos.z);
   if (horiz > R) { jetPos.x *= R / horiz; jetPos.z *= R / horiz; }
   jetPos.y = Math.max(cfg.最低高度, Math.min(cfg.最高高度, jetPos.y));
   player.pos.copy(jetPos);
+
+  // 撞地：往地面里冲一次算一次坠机，伤害每次翻倍(10→20→40→80…)，撞第 4 次直接嗝
+  if (jetCrashCd > 0) jetCrashCd -= dt;
+  if (preY < cfg.最低高度 && jetVel.y < -0.5 && jetCrashCd <= 0 && player.alive) {
+    jetCrashCount++;
+    const dmg = 坠机.基础伤害 * Math.pow(2, jetCrashCount - 1);
+    jetCrashCd = 坠机.冷却;
+    jetPos.y = cfg.最低高度 + 坠机.弹起;          // 弹起来
+    effects.addExplosion(jetPos.clone(), 6); playExplosion(); addShake(0.7 * 手感.屏幕震动); flashScreen(0.55);
+    flashWaveBanner(`💥 撞地！第 ${jetCrashCount} 次 · -${dmg} 血`);
+    damagePlayer(dmg, clock.elapsedTime, jetPos.clone());
+  }
 
   // 机身姿态：机头对准视线，转弯时压坡度（roll）
   const yaw = Math.atan2(-_jfwd.x, -_jfwd.z);
@@ -1256,16 +1288,18 @@ function updateWave9(dt, time) {
     w9LockTarget = best;
   } else w9LockTarget = null;
 
-  // 机炮弹飞行 + 命中 BOSS/小弟
+  // 机炮弹飞行 + 命中 BOSS/小弟（扫掠命中，避免高速子弹一帧穿过地面目标）
   for (let i = jetBullets.length - 1; i >= 0; i--) {
-    const b = jetBullets[i]; b.mesh.position.addScaledVector(b.vel, dt); b.life -= dt;
+    const b = jetBullets[i];
+    _segA.copy(b.mesh.position);                 // 上一帧位置
+    b.mesh.position.addScaledVector(b.vel, dt); b.life -= dt;
     let hit = false;
     for (const t of w9Targets()) {
-      const ap = t.aimPoint(_jtmp);
-      const rr = (t === w9Boss ? 7 : 3.2);
-      if (b.mesh.position.distanceToSquared(ap) <= rr * rr) { hitW9(t, cfg.机炮.伤害); hit = true; break; }
+      const ap = t.aimPoint(_segP);
+      const rr = (t === w9Boss ? 12 : 6);
+      if (distToSeg2(_segA, b.mesh.position, ap) <= rr * rr) { hitW9(t, cfg.机炮.伤害); hit = true; break; }
     }
-    if (hit || b.life <= 0 || b.mesh.position.y < 0) { scene.remove(b.mesh); jetBullets.splice(i, 1); }
+    if (hit || b.life <= 0 || b.mesh.position.y < -1) { scene.remove(b.mesh); jetBullets.splice(i, 1); }
   }
   // 反坦克导弹：直射，撞地/近目标 → 半径内 AoE
   for (let i = atMissiles.length - 1; i >= 0; i--) {
@@ -1294,6 +1328,15 @@ function updateWave9(dt, time) {
     } else boom = mo.age > 1.2;
     mo.mesh.position.addScaledVector(mo.vel, dt);
     if (boom || mo.age > 30) { effects.addExplosion(mo.mesh.position.clone(), 3.5); scene.remove(mo.mesh); agMissiles.splice(i, 1); }
+  }
+
+  // 简单模式僚机：跟飞 + 朝 BOSS/小弟开火（子弹复用玩家机炮弹 → 打 w9 目标）
+  if (allyJets.length) {
+    const tgts = w9Targets();
+    for (const a of allyJets) {
+      const ev = a.update(dt, jetPos, _jfwd, tgts);
+      if (ev && ev.fire) spawnJetBullet(ev.from, ev.dir, cfg.机炮, jetTracerMat, jetBullets);
+    }
   }
 
   // BOSS：不攻击，只召唤小弟
@@ -2409,6 +2452,11 @@ window.__game = {
   w9CannonStop() { mouseHeld = false; return true; },
   w9DamageBoss(d) { if (w9Boss) return hitW9(w9Boss, d), { hp: Math.round(w9Boss.hp), dead: w9Boss.dead }; return null; },
   w9SpawnMinion() { if (w9Boss) w9SpawnMinion(); return w9Units.length; },
+  jetDive(p) { player.pitch = p ?? 1.3; return player.pitch; },
+  setJetPos(x, y, z) { jetPos.set(x, y, z); player.pos.copy(jetPos); return jetPos.toArray(); },
+  get jetCrash() { return jetCrashCount; },
+  get bossHp() { return boss ? Math.round(boss.hp) : null; },
+  get allyJetCount2() { return allyJets.length; },
   get tankPos() { return tank ? tank.root.position.toArray().map(n => +n.toFixed(1)) : null; },
   board() { if (!tank) return false; player.pos.set(tank.root.position.x + 1, player.height, tank.root.position.z); tryToggleTank(); return inTank; },
   tankFire() { mouseHeld = true; return true; },

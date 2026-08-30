@@ -49,8 +49,8 @@ export class Teammate {
     this.side = idx === 0 ? -1 : 1;
   }
 
-  // onFire(enemy, dmg, muzzleWorldPos) —— 命中一个丧尸时回调（由 main 结算伤害/特效）
-  update(dt, playerPos, playerYaw, enemies, onFire) {
+  // onFire(target, dmg, muzzleWorldPos) —— 命中一个目标(丧尸或 BOSS)时回调（由 main 结算伤害/特效）
+  update(dt, playerPos, playerYaw, targets, onFire) {
     const c = this.cfg;
     // 跟随：站在玩家身后偏侧位
     const bx = Math.sin(playerYaw), bz = Math.cos(playerYaw);          // 玩家前方(-forward 约定)
@@ -66,10 +66,10 @@ export class Teammate {
     }
     p.y = 0;
 
-    // 找最近的活丧尸
+    // 找最近的活目标（丧尸或 BOSS）
     let best = null, bestD = c.射程 * c.射程;
-    for (const en of enemies) {
-      if (en.dead) continue;
+    for (const en of targets) {
+      if (!en || en.dead) continue;
       const ex = en.root.position.x - p.x, ez = en.root.position.z - p.z;
       const dd = ex * ex + ez * ez;
       if (dd < bestD) { bestD = dd; best = en; }

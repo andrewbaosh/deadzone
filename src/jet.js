@@ -140,7 +140,7 @@ export class AllyJet {
     this.root.rotation.x = Math.asin(Math.max(-1, Math.min(1, aim.y)));
     if (this.glow) this.glow.material.opacity = 0.6 + 0.4 * Math.random();
     this.fireCd -= dt;
-    if (best && Math.sqrt(bestD) < 220 && this.fireCd <= 0) {
+    if (best && bestD < 480 * 480 && this.fireCd <= 0) {
       this.fireCd = 0.12;                   // 速射
       const from = this.root.position.clone().addScaledVector(aim, 3.5);
       return { fire: true, from, dir: aim };
