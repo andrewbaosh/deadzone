@@ -284,8 +284,11 @@
     <!-- ===== 座舱内视角(按 C 切换) ===== -->
     <!-- 现代战机 HUD：绿色投影 + 玻璃座舱框 -->
     <div id="cockpit-modern" style="display:none;">
-      <div class="hud-scan"></div>
+      <div class="ck-grime"></div><div class="ck-smudge"></div><div class="ck-scratch"></div>
+      <div class="hud-scan"></div><div class="hud-flick"></div>
       <div class="hud-combiner"><b class="c tl"></b><b class="c tr"></b><b class="c bl"></b><b class="c br"></b></div>
+      <div class="hud-aoa"><i></i><i></i><i></i></div>
+      <div class="hud-data br" id="hud-wpn">GUN ∞<br>◊ RDY</div>
       <div id="hud-heading"><div class="tape"></div><div class="lub"></div><div class="box" id="hdg-box">180</div></div>
       <div id="hud-bankarc"></div>
       <div id="hud-ladder"></div>
@@ -299,16 +302,19 @@
     <!-- 二战伊尔-2 强击机：装甲风挡 + 反射瞄准具 + 仪表盘 -->
     <div id="cockpit-il2" style="display:none;">
       <div class="il2-vign"></div>
+      <div class="ck-grime warm"></div><div class="ck-smudge"></div><div class="ck-scratch"></div>
       <div class="il2-frame">
         <div class="post"></div><div class="brace l"></div><div class="brace r"></div>
         <div class="armor"></div>
       </div>
       <div class="il2-sight">
+        <div class="glassplate"></div>
         <div class="housing"></div><div class="ring2"></div><div class="ring"></div>
         <div class="cross v"></div><div class="cross h"></div><div class="pip"></div>
         <div class="bar l"></div><div class="bar r"></div>
       </div>
-      <div id="il2-panel"></div>
+      <div class="il2-stick"><div class="grip"></div><div class="btn"></div></div>
+      <div id="il2-panel"><div class="panel-wear"></div><div class="panel-oil"></div></div>
     </div>
     <style>
       body.cockpit #crosshair { display:none !important; }
@@ -427,6 +433,49 @@
       .gauge.att .wings i:nth-child(2){ width:18px; transform:translate(-50%,-50%) translateX(16px); }
       .gauge.att .wings i:nth-child(3){ width:6px; transform:translate(-50%,-50%); }
       .gauge .g-cap-lbl { position:absolute; left:50%; bottom:-2px; transform:translateX(-50%); font-size:9px; color:#c8a060; font-weight:700; white-space:nowrap; text-shadow:0 1px 2px #000; }
+      /* ===== 做旧：玻璃灰尘/污渍/划痕（两套通用） ===== */
+      .ck-grime, .ck-smudge, .ck-scratch { position:absolute; inset:0; pointer-events:none; }
+      .ck-grime { opacity:.3; mix-blend-mode:overlay;
+        background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+      .ck-grime.warm { opacity:.24; mix-blend-mode:soft-light; }
+      .ck-smudge { opacity:.75; background:
+        radial-gradient(120px 70px at 24% 26%, rgba(230,240,255,.06), transparent 72%),
+        radial-gradient(150px 90px at 72% 62%, rgba(220,230,240,.05), transparent 72%),
+        radial-gradient(90px 60px at 55% 18%, rgba(255,255,255,.045), transparent 70%),
+        radial-gradient(200px 130px at 86% 22%, rgba(180,200,220,.05), transparent 74%); }
+      .ck-scratch { opacity:.5; filter:blur(.3px); background:
+        linear-gradient(66deg, transparent 0 33%, rgba(255,255,255,.12) 33.05% 33.15%, transparent 33.2%),
+        linear-gradient(102deg, transparent 0 61%, rgba(255,255,255,.09) 61.05% 61.13%, transparent 61.2%),
+        linear-gradient(84deg, transparent 0 47%, rgba(255,255,255,.07) 47.04% 47.1%, transparent 47.15%); }
+      /* 现代 HUD 补充符号/抖动 */
+      .hud-flick { position:absolute; inset:0; background:rgba(77,255,146,.03); animation:hudflick 3.7s infinite steps(1); }
+      @keyframes hudflick { 0%,96%{opacity:.5} 97%{opacity:.12} 98%{opacity:.75} 99%{opacity:.3} 100%{opacity:.5} }
+      .hud-aoa { position:absolute; left:calc(50% - 62px); top:50%; transform:translateY(-50%); }
+      .hud-aoa i { position:absolute; left:0; height:2px; background:var(--hud); box-shadow:0 0 4px var(--hud); }
+      .hud-aoa i:nth-child(1){ top:-14px; width:9px; } .hud-aoa i:nth-child(2){ top:0; width:5px; } .hud-aoa i:nth-child(3){ top:14px; width:9px; }
+      .hud-data.br { right:60px; bottom:70px; text-align:right; }
+      /* 伊尔-2：操纵杆 + 瞄准具反射玻璃 + 面板磨损/油渍 + 表玻璃泛黄 */
+      .il2-sight .glassplate { position:absolute; left:50%; top:calc(50% + 8px); transform:translate(-50%,-50%) perspective(220px) rotateX(20deg);
+        width:124px; height:108px; border:1px solid rgba(180,200,180,.16); border-radius:4px;
+        background:linear-gradient(150deg, rgba(160,190,160,.10), rgba(120,150,140,.03) 45%, rgba(200,220,200,.08)); box-shadow:inset 0 0 22px rgba(120,160,140,.07); }
+      .il2-stick { position:absolute; left:50%; bottom:150px; transform:translateX(-50%); width:26px; height:100px; z-index:2; }
+      .il2-stick .grip { position:absolute; inset:0; border-radius:11px 11px 6px 6px;
+        background:linear-gradient(90deg,#1e150b,#3a2a18 42%,#4c3620 56%,#191108); box-shadow:0 5px 12px rgba(0,0,0,.65), inset 2px 0 rgba(255,220,160,.12), inset -2px 0 rgba(0,0,0,.5); }
+      .il2-stick .grip::after { content:''; position:absolute; left:4px; right:4px; top:16px; height:46px; border-radius:6px;
+        background:repeating-linear-gradient(#2c2012 0 4px, #16100a 4px 8px); opacity:.85; }
+      .il2-stick .btn { position:absolute; left:50%; top:7px; transform:translateX(-50%); width:9px; height:7px; border-radius:2px; background:#b13a2a; box-shadow:0 0 6px rgba(220,70,45,.75); }
+      #il2-panel .panel-wear, #il2-panel .panel-oil { position:absolute; inset:0; pointer-events:none; }
+      #il2-panel .panel-wear { background:
+        radial-gradient(52px 18px at 16% 32%, rgba(160,140,95,.2), transparent 70%),
+        radial-gradient(30px 14px at 84% 26%, rgba(170,148,105,.17), transparent 70%),
+        radial-gradient(24px 10px at 46% 74%, rgba(175,152,110,.15), transparent 70%),
+        radial-gradient(40px 16px at 70% 60%, rgba(140,120,85,.13), transparent 72%); }
+      #il2-panel .panel-oil { background:
+        radial-gradient(95px 42px at 62% 98%, rgba(0,0,0,.5), transparent 72%),
+        radial-gradient(60px 30px at 28% 100%, rgba(0,0,0,.42), transparent 70%); }
+      .gauge::after { content:''; position:absolute; inset:6px; border-radius:50%; pointer-events:none;
+        background:radial-gradient(circle at 40% 28%, rgba(255,238,195,.12), transparent 56%),
+          linear-gradient(140deg, rgba(255,255,255,.1) 0 11%, transparent 20%); }
     </style>
 
     <!-- 第九波：当前武器 + 弹药 -->
