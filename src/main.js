@@ -180,6 +180,7 @@ let atMissiles = [], agMissiles = [];        // 反坦克导弹(直射AoE) / 空
 let atAmmo = 0, agAmmo = 0, atChargeT = 0, agChargeT = 0;
 let w9WeaponCd = 0, w9LockTarget = null, w9WarnT = 0, w9BeepT = 0;
 let jetCrashCount = 0, jetCrashCd = 0;       // 撞地次数(伤害翻倍) + 冷却
+let w9HitSfxT = 0;                            // 命中特效/音效节流(机炮60发/秒别刷爆)
 const atMissileMat = new THREE.MeshStandardMaterial({ color: 0xbcbcbc, emissive: 0x442200, roughness: 0.4 });
 // 选关卡 + 难度（简单=多2队友；困难=自己）
 let teammates = [];
@@ -243,6 +244,8 @@ const hud = {
   jetWeapon: el('jet-weapon'),
   jetWarn: el('jet-warn'),
   diffTag: el('diff-tag'),
+  flightHud: el('flight-hud'), attHorizon: el('att-horizon'),
+  fiAlt: el('fi-alt-v'), fiSpd: el('fi-spd-v'), fiHdg: el('fi-hdg-v'),
 };
 
 function setCenterMsg(html, show = true) {
@@ -968,6 +971,7 @@ function enterJetMode(w = 8) {
   jetPos.set(0, cfg.巡航高度, cfg.竞技场 * 0.55);
   player.pos.copy(jetPos);
   player.yaw = Math.PI; player.pitch = 0; jetLastYaw = Math.PI; jetRoll = 0;
+  player.freePitch = true;                    // 空战解锁俯仰：能拉筋斗/垂直翻身
   jetCannonCd = jetMissileCd = jetLockTimer = 0; jetLockTarget = null;
   jetCrashCount = 0; jetCrashCd = 0;
 
@@ -1020,6 +1024,8 @@ function exitJetMode() {
   hud.jetLock.style.display = 'none';
   hud.jetWeapon.style.display = 'none';
   hud.jetWarn.style.display = 'none';
+  hud.flightHud.style.display = 'none';
+  player.freePitch = false;
   minimap.setVisible(true);
 }
 
@@ -1092,6 +1098,19 @@ function updateJetFlight(dt) {
     camera.position.y += (Math.random() - 0.5) * shakeAmount;
     shakeAmount *= Math.max(0, 1 - dt * 7);
   }
+  updateFlightHud();
+}
+
+// 飞行仪表：水平仪(姿态) + 高度计 + 空速 + 航向
+function updateFlightHud() {
+  hud.flightHud.style.display = 'flex';
+  const pitchDeg = player.pitch * 180 / Math.PI;   // 正 = 机头朝下(俯冲)
+  const rollDeg = jetRoll * 180 / Math.PI;
+  // 俯仰：机头朝下→地平线上移(看到更多地面)；横滚：地平线反向倾斜
+  hud.attHorizon.style.transform = `rotate(${-rollDeg}deg) translateY(${pitchDeg * 1.7}px)`;
+  hud.fiAlt.textContent = Math.max(0, Math.round(jetPos.y));
+  hud.fiSpd.textContent = Math.round(jetVel.length());
+  hud.fiHdg.textContent = Math.round(((player.yaw * 180 / Math.PI) % 360 + 360) % 360);
 }
 
 function updateJetMode(dt, time) {
@@ -1252,7 +1271,11 @@ function killW9Unit(u) { effects.addExplosion(u.root.position.clone().setY(1.2),
 function hitW9(target, dmg) {
   earnDamage(dmg);
   const ap = target.aimPoint(new THREE.Vector3());
-  effects.addSparks(ap, _uz, 6, 0xffcc55);
+  // 命中反馈：亮火花 + 准星命中标记 + 撞击闪光/闷响（节流，避免 60发/秒刷爆）
+  effects.addSparks(ap, _uz, 9, 0xffe066);
+  hitmarkerTimer = 0.12;
+  if (target.flashHit) target.flashHit();
+  if (w9HitSfxT <= 0) { effects.addExplosion(ap, target === w9Boss ? 2.2 : 1.5); playMeleeHit(false); w9HitSfxT = 0.08; }
   if (target.takeDamage(dmg)) {
     if (target === w9Boss) return;   // BOSS 死亡在主循环里统一处理
     killW9Unit(target); const i = w9Units.indexOf(target); if (i >= 0) w9Units.splice(i, 1); kills++;
@@ -1261,6 +1284,7 @@ function hitW9(target, dmg) {
 
 function updateWave9(dt, time) {
   const cfg = 空战九;
+  if (w9HitSfxT > 0) w9HitSfxT -= dt;
   // 武器冷却 + 导弹弹药回充（打光后每 2 秒回 1 发）
   if (w9WeaponCd > 0) w9WeaponCd -= dt;
   if (atAmmo < cfg.反坦克导弹.弹数 && atChargeT > 0) { atChargeT -= dt; if (atChargeT <= 0) { atAmmo++; if (atAmmo < cfg.反坦克导弹.弹数) atChargeT = cfg.反坦克导弹.充能间隔; } }

@@ -40,11 +40,13 @@ export class Wave9Boss {
     this.t = 0;
   }
   takeDamage(d) { if (this.dead) return false; this.hp -= d; if (this.hp <= 0) { this.hp = 0; this.dead = true; return true; } return false; }
+  flashHit() { this.hitT = 0.12; }
   // 返回 true 表示这帧要召唤一个小弟
   update(dt) {
     this.t += dt;
     this.root.rotation.y += dt * 0.15;
-    if (this.core) { const s = 1 + 0.12 * Math.sin(this.t * 3); this.core.scale.setScalar(s); this.core.material.opacity = 0.7 + 0.3 * Math.abs(Math.sin(this.t * 3)); }
+    if (this.hitT > 0) this.hitT -= dt;
+    if (this.core) { const hit = this.hitT > 0; const s = 1 + 0.12 * Math.sin(this.t * 3) + (hit ? 0.5 : 0); this.core.scale.setScalar(s); this.core.material.color.setHex(hit ? 0xffffff : 0xff3322); this.core.material.opacity = 0.7 + 0.3 * Math.abs(Math.sin(this.t * 3)); }
     this.summonCd -= dt;
     if (this.summonCd <= 0) { this.summonCd = this.cfg.召唤间隔; return true; }
     return false;
@@ -61,6 +63,8 @@ class GroundUnit {
     this._d = new THREE.Vector3();
   }
   takeDamage(d) { if (this.dead) return false; this.hp -= d; if (this.hp <= 0) { this.hp = 0; this.dead = true; return true; } return false; }
+  flashHit() { this.hitT = 0.1; }
+  _hitPop(dt) { if (this.hitT > 0) { this.hitT -= dt; this.root.scale.setScalar(1 + Math.max(0, this.hitT) * 1.4); } else if (this.root.scale.x !== 1) this.root.scale.setScalar(1); }
   aimPoint(out) { return out.set(this.root.position.x, 1.6, this.root.position.z); }
   // 慢慢开到玩家正下方附近，保持在射程内
   _drive(dt, playerPos) {
@@ -92,7 +96,7 @@ export class TankVehicle extends GroundUnit {
     this.bullet = { 伤害: cfg.子弹伤害, 弹速: cfg.弹速, 命中半径: cfg.命中半径, 大: true };
   }
   update(dt, playerPos) {
-    this._drive(dt, playerPos);
+    this._drive(dt, playerPos); this._hitPop(dt);
     // 炮塔转向玩家
     const dx = playerPos.x - this.root.position.x, dz = playerPos.z - this.root.position.z;
     this.turret.rotation.y = Math.atan2(dx, dz) - this.root.rotation.y + Math.PI;
@@ -135,7 +139,7 @@ export class AAVehicle extends GroundUnit {
   }
   // 返回 {warn: 剩余秒} 表示预警中，或 {fire,from,dir,bullet} 表示打了一发机枪
   update(dt, playerPos) {
-    this._drive(dt, playerPos);
+    this._drive(dt, playerPos); this._hitPop(dt);
     const dx = playerPos.x - this.root.position.x, dz = playerPos.z - this.root.position.z;
     this.turret.rotation.y = Math.atan2(dx, dz) - this.root.rotation.y + Math.PI;
     const c = this.cfg;

@@ -239,6 +239,32 @@
     </div>
     <div id="jet-hint" style="position:absolute;right:14px;bottom:12px;z-index:12;color:#bcd6ff;font-size:12px;letter-spacing:1px;text-shadow:0 1px 3px #000;opacity:.85;">✈ 鼠标转向 · W/S 油门 · 左键机炮 · 长按 <b>2</b> 锁定导弹（松开发射）</div>
     <div id="diff-tag" style="display:none;position:absolute;left:16px;top:150px;z-index:12;font-weight:800;letter-spacing:1px;color:#8fe6b0;text-shadow:0 1px 3px #000;font-size:13px;">困难 · 孤身</div>
+    <!-- 空战飞行仪表：水平仪(姿态) + 高度计 + 空速 + 航向 -->
+    <div id="flight-hud" style="display:none;">
+      <div id="att-ind">
+        <div id="att-horizon"></div>
+        <div id="att-plane"><span></span><b></b><span></span></div>
+      </div>
+      <div id="fi-alt"><label>高度</label><em id="fi-alt-v">0</em> m</div>
+      <div id="fi-spd"><label>空速</label><em id="fi-spd-v">0</em></div>
+      <div id="fi-hdg"><label>航向</label><em id="fi-hdg-v">0</em>°</div>
+    </div>
+    <style>
+      #flight-hud { position:absolute; left:50%; bottom:88px; transform:translateX(-50%); z-index:12; pointer-events:none;
+        display:flex; align-items:flex-end; gap:16px; color:#bfe9ff; font-weight:800; letter-spacing:1px; text-shadow:0 1px 3px #000; }
+      #att-ind { position:relative; width:150px; height:150px; border-radius:50%; overflow:hidden;
+        border:2px solid rgba(150,220,255,.6); box-shadow:0 0 12px rgba(0,0,0,.5), inset 0 0 12px rgba(0,0,0,.4); background:#0a1420; }
+      #att-horizon { position:absolute; left:-75px; top:-225px; width:300px; height:600px;
+        background:linear-gradient(#3aa0e0 0%, #6ec6ef 49.6%, #ffffff 49.6%, #ffffff 50.4%, #8a6a3a 50.4%, #5a3f1e 100%); }
+      #att-plane { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); display:flex; align-items:center; gap:5px; }
+      #att-plane span { width:26px; height:3px; background:#ffcc33; box-shadow:0 0 4px #000; }
+      #att-plane b { width:6px; height:6px; border-radius:50%; background:#ffcc33; box-shadow:0 0 4px #000; }
+      #flight-hud .fi { display:flex; flex-direction:column; align-items:center; }
+      #flight-hud label { font-size:11px; opacity:.7; font-weight:600; }
+      #flight-hud em { font-style:normal; font-size:22px; color:#fff; }
+      #fi-alt, #fi-spd, #fi-hdg { display:flex; flex-direction:column; align-items:center; min-width:64px;
+        padding:6px 8px; border-radius:8px; background:rgba(10,20,32,.6); border:1px solid rgba(150,220,255,.35); }
+    </style>
     <!-- 第九波：当前武器 + 弹药 -->
     <div id="jet-weapon" style="display:none;position:absolute;right:16px;bottom:44px;z-index:12;text-align:right;color:#dff2ff;font-weight:800;letter-spacing:1px;text-shadow:0 1px 3px #000;font-size:15px;"></div>
     <!-- 第九波：防空车开火预警（屏幕底部） -->

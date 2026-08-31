@@ -53,8 +53,14 @@ export class Player {
     this.yaw -= dx * sens;
     const invert = 手感.上下反转 ? -1 : 1;
     this.pitch -= dy * sens * invert;
-    const lim = Math.PI / 2 - 0.02;
-    this.pitch = Math.max(-lim, Math.min(lim, this.pitch));
+    if (this.freePitch) {
+      // 空战：不夹俯仰角，可拉成垂直翻身/筋斗再俯冲；把角度卷回 (-π, π]
+      if (this.pitch > Math.PI) this.pitch -= Math.PI * 2;
+      else if (this.pitch < -Math.PI) this.pitch += Math.PI * 2;
+    } else {
+      const lim = Math.PI / 2 - 0.02;
+      this.pitch = Math.max(-lim, Math.min(lim, this.pitch));
+    }
   }
 
   takeDamage(dmg, time) {
