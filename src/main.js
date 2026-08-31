@@ -1164,20 +1164,114 @@ function updateJetFlight(dt) {
   updateFlightHud();
 }
 
-// 飞行仪表：水平仪(姿态) + 高度计 + 空速 + 航向
+/* ===== 座舱精细仪表：现代 HUD 航向/空速/高度带 + 伊尔-2 六圆表仪表盘 ===== */
+const CK = {};
+function makeVTape(sel, min, max, step, labelEvery, pxPer) {
+  const tape = document.querySelector(sel);
+  for (let v = min; v <= max; v += step) {
+    const t = document.createElement('div'); t.className = 't'; t.style.top = (-v * pxPer) + 'px';
+    t.innerHTML = `<i></i>${v % labelEvery === 0 ? `<b>${v}</b>` : ''}`;
+    tape.appendChild(t);
+  }
+  CK[sel] = tape; return tape;
+}
+function addGauge(panel, cap, o) {
+  o.min = o.min ?? 0; const start = -135, sweep = 270; let ticks = '';
+  for (let i = 0; i <= o.ticks; i++) {
+    const f = i / o.ticks, a = start + f * sweep, maj = (i % o.labelEvery === 0);
+    ticks += `<g transform="rotate(${a} 50 50)"><line x1="50" y1="6" x2="50" y2="${maj ? 15 : 11}" class="g-tick ${maj ? 'maj' : ''}"/></g>`;
+    if (maj) { const ar = a * Math.PI / 180, lx = 50 + Math.sin(ar) * 33, ly = 50 - Math.cos(ar) * 33;
+      ticks += `<text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" class="g-num">${Math.round(o.min + f * (o.max - o.min))}</text>`; }
+  }
+  const div = document.createElement('div'); div.className = 'gauge';
+  div.innerHTML = `<svg viewBox="0 0 100 100" class="g-svg"><circle cx="50" cy="50" r="48" class="g-bezel"/><circle cx="50" cy="50" r="44" class="g-face"/>${ticks}<g class="needle"><line x1="50" y1="58" x2="50" y2="15" class="g-hand"/></g><circle cx="50" cy="50" r="3.4" class="g-hub"/><ellipse cx="41" cy="33" rx="15" ry="9" fill="rgba(255,255,255,.05)"/></svg><span class="g-cap-lbl">${cap}</span>`;
+  panel.appendChild(div);
+  return { needle: div.querySelector('.needle'), min: o.min, max: o.max, start, sweep };
+}
+function setNeedle(g, value) {
+  const f = Math.max(0, Math.min(1, (value - g.min) / (g.max - g.min)));
+  g.needle.setAttribute('transform', `rotate(${(g.start + f * g.sweep).toFixed(1)} 50 50)`);
+}
+function addAttGauge(panel, cap) {
+  const div = document.createElement('div'); div.className = 'gauge att';
+  div.innerHTML = `<svg viewBox="0 0 100 100" class="g-svg" style="position:absolute;inset:0"><circle cx="50" cy="50" r="48" class="g-bezel"/></svg><div class="att-h"><div class="horizon"></div></div><div class="wings"><i></i><i></i><i></i></div><span class="g-cap-lbl">${cap}</span>`;
+  panel.appendChild(div);
+  return { horizon: div.querySelector('.horizon') };
+}
+function addCompass(panel, cap) {
+  let marks = '';
+  for (let d = 0; d < 360; d += 30) {
+    const ar = d * Math.PI / 180, lx = 50 + Math.sin(ar) * 34, ly = 50 - Math.cos(ar) * 34;
+    const lab = { 0: 'N', 90: 'E', 180: 'S', 270: 'W' }[d] ?? (d / 10);
+    marks += `<g transform="rotate(${d} 50 50)"><line x1="50" y1="6" x2="50" y2="12" class="g-tick maj"/></g><text x="${lx.toFixed(1)}" y="${ly.toFixed(1)}" class="g-num">${lab}</text>`;
+  }
+  const div = document.createElement('div'); div.className = 'gauge';
+  div.innerHTML = `<svg viewBox="0 0 100 100" class="g-svg"><circle cx="50" cy="50" r="48" class="g-bezel"/><circle cx="50" cy="50" r="44" class="g-face"/><g class="card">${marks}</g><path d="M50 3 L46 12 L54 12 Z" fill="#ff6644"/><circle cx="50" cy="50" r="3" class="g-hub"/></svg><span class="g-cap-lbl">${cap}</span>`;
+  panel.appendChild(div);
+  return { card: div.querySelector('.card') };
+}
+(function buildCockpitDetail() {
+  // 现代 HUD 航向带
+  const ht = document.querySelector('#hud-heading .tape'); CK.hpd = 3; CK.headTape = ht;
+  for (let d = -60; d <= 420; d += 5) {
+    const t = document.createElement('div'); t.className = 't'; t.style.left = (d * CK.hpd) + 'px';
+    const maj = (((d % 30) + 360) % 30) === 0, dd = ((d % 360) + 360) % 360;
+    const lab = { 0: 'N', 90: 'E', 180: 'S', 270: 'W' }[dd] ?? (dd / 10 | 0);
+    t.innerHTML = `<i style="top:0;height:${maj ? 12 : 7}px"></i>${maj ? `<b>${lab}</b>` : ''}`;
+    ht.appendChild(t);
+  }
+  // 现代 HUD 横滚弧
+  const ba = el('hud-bankarc');
+  for (const a of [-60, -45, -30, -20, -10, 0, 10, 20, 30, 45, 60]) {
+    const bt = document.createElement('div'); bt.className = 'bt'; bt.style.transform = `rotate(${a}deg)`;
+    bt.innerHTML = `<i style="top:-158px;height:${a % 30 === 0 ? 10 : 6}px"></i>`; ba.appendChild(bt);
+  }
+  CK.bankPtr = document.createElement('div'); CK.bankPtr.className = 'ptr'; CK.bankPtr.innerHTML = '<i></i>'; ba.appendChild(CK.bankPtr);
+  // 现代 HUD 空速/高度带
+  CK.spdTape = makeVTape('#hud-spd .tape', 0, 220, 10, 20, 3); CK.spdPx = 3;
+  CK.altTape = makeVTape('#hud-alt .tape', 0, 260, 20, 40, 1.6); CK.altPx = 1.6;
+  // 伊尔-2 仪表盘（6 圆表）
+  const panel = el('il2-panel');
+  panel.insertAdjacentHTML('beforeend', `<svg width="0" height="0"><defs><radialGradient id="gface" cx="50%" cy="42%" r="65%"><stop offset="0" stop-color="#2a2118"/><stop offset="1" stop-color="#0c0906"/></radialGradient></defs></svg>`);
+  CK.spdG = addGauge(panel, '空速', { max: 120, ticks: 12, labelEvery: 2 });
+  CK.attG = addAttGauge(panel, '地平仪');
+  CK.altG = addGauge(panel, '高度', { max: 200, ticks: 10, labelEvery: 1 });
+  CK.compG = addCompass(panel, '航向');
+  CK.rpmG = addGauge(panel, '转速', { max: 100, ticks: 10, labelEvery: 2 });
+  CK.vsiG = addGauge(panel, '升降', { min: -6, max: 6, ticks: 12, labelEvery: 3 });
+})();
+
+// 飞行仪表：水平仪(姿态) + 高度计 + 空速 + 航向；座舱内驱动各自的精细仪表
 function updateFlightHud() {
-  hud.flightHud.style.display = 'flex';
   const pitchDeg = player.pitch * 180 / Math.PI;   // 正 = 机头朝下(俯冲)
   const rollDeg = jetRoll * 180 / Math.PI;
-  // 姿态仪：地平线相对水平机翼符号反向倾斜(与真实姿态仪一致)；俯仰让地平线上下移
+  const hdg = ((player.yaw * 180 / Math.PI) % 360 + 360) % 360;
+  const spd = jetVel.length(), alt = Math.max(0, jetPos.y);
+  // 第三人称底部仪表(座舱内 CSS 会隐藏它)
+  hud.flightHud.style.display = 'flex';
   hud.attHorizon.style.transform = `rotate(${rollDeg}deg) translateY(${-pitchDeg * 1.7}px)`;
-  hud.attBankPtr.style.transform = `rotate(${rollDeg}deg)`;   // 横滚指针随坡度转，指向固定刻度
-  hud.fiAlt.textContent = Math.max(0, Math.round(jetPos.y));
-  hud.fiSpd.textContent = Math.round(jetVel.length());
-  hud.fiHdg.textContent = Math.round(((player.yaw * 180 / Math.PI) % 360 + 360) % 360);
-  // 现代座舱 HUD：中央绿色俯仰梯随姿态滚动/上下(固定准星 = 机头基准)
+  hud.attBankPtr.style.transform = `rotate(${rollDeg}deg)`;
+  hud.fiAlt.textContent = Math.round(alt); hud.fiSpd.textContent = Math.round(spd); hud.fiHdg.textContent = Math.round(hdg);
+
   if (cockpitView && jetWave !== 9) {
+    // 现代战机 HUD
     hud.hudLadder.style.transform = `rotate(${-rollDeg}deg) translateY(${-pitchDeg * 7}px)`;
+    CK.headTape.style.transform = `translateX(${170 - hdg * CK.hpd}px)`;
+    el('hdg-box').textContent = Math.round(hdg);
+    CK.bankPtr.style.transform = `rotate(${-rollDeg}deg)`;
+    CK.spdTape.style.transform = `translateY(${spd * CK.spdPx}px)`;
+    CK.altTape.style.transform = `translateY(${alt * CK.altPx}px)`;
+    el('spd-box').textContent = Math.round(spd);
+    el('alt-box').textContent = Math.round(alt);
+    el('hud-g').innerHTML = `G ${(1 + Math.abs(jetRoll) * 1.4).toFixed(1)}<br>M ${(spd / 340).toFixed(2)}`;
+  } else if (cockpitView && jetWave === 9) {
+    // 伊尔-2 仪表盘
+    setNeedle(CK.spdG, spd);
+    setNeedle(CK.altG, alt);
+    setNeedle(CK.rpmG, player.keys['KeyW'] ? 88 : player.keys['KeyS'] ? 34 : 62);
+    setNeedle(CK.vsiG, Math.max(-6, Math.min(6, -jetVel.y * 0.12)));
+    CK.compG.card.setAttribute('transform', `rotate(${-hdg} 50 50)`);
+    CK.attG.horizon.style.transform = `rotate(${rollDeg}deg) translateY(${-pitchDeg * 0.55}px)`;
   }
 }
 

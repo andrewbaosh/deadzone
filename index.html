@@ -284,61 +284,149 @@
     <!-- ===== 座舱内视角(按 C 切换) ===== -->
     <!-- 现代战机 HUD：绿色投影 + 玻璃座舱框 -->
     <div id="cockpit-modern" style="display:none;">
-      <div class="hud-frame"></div>
+      <div class="hud-scan"></div>
+      <div class="hud-combiner"><b class="c tl"></b><b class="c tr"></b><b class="c bl"></b><b class="c br"></b></div>
+      <div id="hud-heading"><div class="tape"></div><div class="lub"></div><div class="box" id="hdg-box">180</div></div>
+      <div id="hud-bankarc"></div>
       <div id="hud-ladder"></div>
-      <div class="hud-bore"><span></span><span></span><i></i></div>
       <div class="hud-fpm">⊕</div>
+      <div class="hud-bore"><span></span><span></span><i></i></div>
+      <div id="hud-spd" class="hud-tape L"><div class="tape"></div><div class="chev"></div><div class="box" id="spd-box">0</div><label>空速 m/s</label></div>
+      <div id="hud-alt" class="hud-tape R"><div class="tape"></div><div class="chev"></div><div class="box" id="alt-box">0</div><label>高度 m</label></div>
+      <div class="hud-data tl" id="hud-mode">飞行 · A/A</div>
+      <div class="hud-data bl" id="hud-g">G 1.0<br>M 0.18</div>
     </div>
-    <!-- 二战伊尔-2 强击机：金属座舱框 + 反射瞄准具 -->
+    <!-- 二战伊尔-2 强击机：装甲风挡 + 反射瞄准具 + 仪表盘 -->
     <div id="cockpit-il2" style="display:none;">
-      <div class="il2-canopy"></div>
-      <div class="il2-sight"><div class="ring"></div><div class="pip"></div><div class="bar l"></div><div class="bar r"></div></div>
-      <div class="il2-panel"></div>
+      <div class="il2-vign"></div>
+      <div class="il2-frame">
+        <div class="post"></div><div class="brace l"></div><div class="brace r"></div>
+        <div class="armor"></div>
+      </div>
+      <div class="il2-sight">
+        <div class="housing"></div><div class="ring2"></div><div class="ring"></div>
+        <div class="cross v"></div><div class="cross h"></div><div class="pip"></div>
+        <div class="bar l"></div><div class="bar r"></div>
+      </div>
+      <div id="il2-panel"></div>
     </div>
     <style>
-      /* 座舱通用：进座舱隐藏准星 */
       body.cockpit #crosshair { display:none !important; }
-      /* 现代 HUD 座舱：俯仰梯已表示姿态，隐藏底部圆形水平仪(只留 高度/空速/航向) */
-      body.ck-modern.cockpit #att-ind { display:none !important; }
-      body.ck-modern.cockpit #flight-hud em { color:#8fffc0; } body.ck-modern.cockpit #flight-hud label { color:#5fdf9f; }
-      body.ck-modern.cockpit #fi-alt, body.ck-modern.cockpit #fi-spd, body.ck-modern.cockpit #fi-hdg {
-        background:rgba(6,24,14,.6); border-color:rgba(70,255,140,.45); }
-      #cockpit-modern, #cockpit-il2 { position:absolute; inset:0; z-index:11; pointer-events:none; }
-      /* --- 现代战机 HUD（绿色） --- */
-      .hud-frame { position:absolute; inset:0; box-shadow:inset 0 0 120px rgba(0,0,0,.7), inset 0 0 40px rgba(0,0,0,.5);
-        border:14px solid rgba(8,14,10,.55); border-radius:26px; }
+      body.cockpit #flight-hud { display:none !important; }   /* 座舱内用各自的仪表 */
+      #cockpit-modern, #cockpit-il2 { position:absolute; inset:0; z-index:11; pointer-events:none; overflow:hidden; }
+      /* ---------- 现代战机 HUD（绿色玻璃投影） ---------- */
+      #cockpit-modern { --hud:#4dff92; }
+      .hud-scan { position:absolute; inset:0; background:repeating-linear-gradient(rgba(77,255,146,.04) 0 2px, transparent 2px 4px);
+        box-shadow:inset 0 0 160px rgba(0,0,0,.72), inset 0 0 50px rgba(0,0,0,.5); mix-blend-mode:screen; }
+      .hud-combiner { position:absolute; inset:26px 40px; border-radius:8px; }
+      .hud-combiner .c { position:absolute; width:26px; height:26px; border:2px solid rgba(77,255,146,.5); }
+      .hud-combiner .c.tl{ left:0; top:0; border-right:0; border-bottom:0; } .hud-combiner .c.tr{ right:0; top:0; border-left:0; border-bottom:0; }
+      .hud-combiner .c.bl{ left:0; bottom:0; border-right:0; border-top:0; } .hud-combiner .c.br{ right:0; bottom:0; border-left:0; border-top:0; }
+      #cockpit-modern *{ color:var(--hud); }
+      /* 顶部航向带 */
+      #hud-heading { position:absolute; left:50%; top:34px; transform:translateX(-50%); width:340px; height:34px; overflow:hidden;
+        -webkit-mask:linear-gradient(90deg,transparent,#000 16%,#000 84%,transparent); mask:linear-gradient(90deg,transparent,#000 16%,#000 84%,transparent); }
+      #hud-heading .tape { position:absolute; left:0; top:8px; height:26px; white-space:nowrap; }
+      #hud-heading .tape .t { position:absolute; top:0; width:0; }
+      #hud-heading .tape .t i { position:absolute; left:-1px; width:2px; background:var(--hud); box-shadow:0 0 3px var(--hud); }
+      #hud-heading .tape .t b { position:absolute; left:50%; top:14px; transform:translateX(-50%); font-size:11px; font-weight:800; text-shadow:0 0 4px #000; }
+      #hud-heading .lub { position:absolute; left:50%; top:0; transform:translateX(-50%); border-left:6px solid transparent; border-right:6px solid transparent; border-top:8px solid #eaffee; }
+      #hud-heading .box { position:absolute; left:50%; top:-2px; transform:translateX(-50%); padding:1px 6px; font-size:13px; font-weight:900;
+        background:rgba(3,20,10,.7); border:1px solid var(--hud); border-radius:3px; }
+      /* 横滚刻度弧 */
+      #hud-bankarc { position:absolute; left:50%; top:50%; width:0; height:0; }
+      #hud-bankarc .bt { position:absolute; left:0; top:0; width:0; height:0; }
+      #hud-bankarc .bt i { position:absolute; left:-1px; width:2px; background:var(--hud); box-shadow:0 0 3px var(--hud); }
+      #hud-bankarc .ptr { position:absolute; left:0; top:0; width:0; height:0; }
+      #hud-bankarc .ptr i { position:absolute; left:-6px; top:-150px; border-left:6px solid transparent; border-right:6px solid transparent; border-bottom:9px solid #eaffee; }
+      /* 俯仰梯 */
       #hud-ladder { position:absolute; left:50%; top:50%; width:0; height:0; }
-      #hud-ladder .hl { position:absolute; left:50%; transform:translateX(-50%); height:0; border-top:2px solid #46ff86;
-        box-shadow:0 0 4px rgba(60,255,140,.6); }
+      #hud-ladder .hl { position:absolute; left:50%; transform:translateX(-50%); height:0; border-top:2px solid var(--hud); box-shadow:0 0 4px rgba(77,255,146,.6); }
       #hud-ladder .hl.dn { border-top-style:dashed; }
-      #hud-ladder .hl .n { position:absolute; top:-8px; font-size:11px; color:#46ff86; font-weight:800; text-shadow:0 0 4px #000; }
-      #hud-ladder .hl .n.l { left:-24px; } #hud-ladder .hl .n.r { right:-24px; }
+      #hud-ladder .hl::before, #hud-ladder .hl::after { content:''; position:absolute; bottom:0; width:2px; height:6px; background:var(--hud); }
+      #hud-ladder .hl::before{ left:0; } #hud-ladder .hl::after{ right:0; }
+      #hud-ladder .hl.dn::before, #hud-ladder .hl.dn::after { top:0; bottom:auto; }
+      #hud-ladder .hl .n { position:absolute; top:-7px; font-size:11px; font-weight:800; text-shadow:0 0 4px #000; }
+      #hud-ladder .hl .n.l { left:-26px; } #hud-ladder .hl .n.r { right:-26px; }
       .hud-bore { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); }
-      .hud-bore span { position:absolute; left:50%; top:50%; width:22px; height:2px; background:#46ff86; box-shadow:0 0 5px #46ff86; }
-      .hud-bore span:nth-child(1){ transform:translate(-50%,-50%) translateX(-20px); }
-      .hud-bore span:nth-child(2){ transform:translate(-50%,-50%) translateX(20px); }
-      .hud-bore i { position:absolute; left:50%; top:50%; width:6px; height:6px; margin:-3px 0 0 -3px; border-radius:50%; background:#46ff86; box-shadow:0 0 6px #46ff86; }
-      .hud-fpm { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); color:#46ff86; font-size:26px; text-shadow:0 0 6px #46ff86; opacity:.9; }
-      /* --- 伊尔-2 强击机座舱 --- */
-      .il2-canopy { position:absolute; inset:0;
-        box-shadow:inset 0 0 160px rgba(20,14,6,.85), inset 0 0 60px rgba(0,0,0,.6);
-        border-top:26px solid #2a2118; border-left:34px solid #241c14; border-right:34px solid #241c14;
-        border-image:linear-gradient(#3a2e20,#1a140d) 1; }
-      .il2-canopy::before { content:''; position:absolute; left:50%; top:0; width:10px; height:46%; transform:translateX(-50%);
-        background:linear-gradient(#3a2e20,#241c14); box-shadow:0 0 8px #000; }  /* 中框 */
-      .il2-sight { position:absolute; left:50%; top:44%; transform:translate(-50%,-50%); }
-      .il2-sight .ring { width:96px; height:96px; border:2px solid rgba(255,180,90,.85); border-radius:50%; box-shadow:0 0 10px rgba(255,160,60,.6), inset 0 0 14px rgba(255,160,60,.25); }
-      .il2-sight .pip { position:absolute; left:50%; top:50%; width:7px; height:7px; margin:-3.5px 0 0 -3.5px; border-radius:50%; background:#ffcc55; box-shadow:0 0 8px #ffb040; }
-      .il2-sight .bar { position:absolute; top:50%; width:26px; height:2px; background:rgba(255,180,90,.8); }
-      .il2-sight .bar.l{ left:-34px; } .il2-sight .bar.r{ right:-34px; }
-      .il2-panel { position:absolute; left:0; right:0; bottom:0; height:120px;
-        background:linear-gradient(#2b2117,#171009); border-top:3px solid #4a3a26; box-shadow:0 -6px 20px rgba(0,0,0,.6); }
-      /* 伊尔-2 座舱时，把飞行仪表染成黄铜色并压到面板里 */
-      body.ck-il2.cockpit #flight-hud { bottom:8px; }
-      body.ck-il2.cockpit #att-ind { border-color:rgba(200,150,80,.7); box-shadow:0 0 10px rgba(0,0,0,.6), inset 0 0 14px rgba(60,40,15,.5); }
-      body.ck-il2.cockpit #fi-alt, body.ck-il2.cockpit #fi-spd, body.ck-il2.cockpit #fi-hdg {
-        background:rgba(40,28,14,.75); border-color:rgba(200,150,80,.5); color:#ffdca0; }
-      body.ck-il2.cockpit #flight-hud em { color:#ffe6b0; } body.ck-il2.cockpit #flight-hud label { color:#c8a060; }
+      .hud-bore span { position:absolute; left:50%; top:50%; width:20px; height:2px; background:var(--hud); box-shadow:0 0 5px var(--hud); }
+      .hud-bore span:nth-child(1){ transform:translate(-50%,-50%) translateX(-19px); } .hud-bore span:nth-child(2){ transform:translate(-50%,-50%) translateX(19px); }
+      .hud-bore i { position:absolute; left:50%; top:50%; width:5px; height:5px; margin:-2.5px 0 0 -2.5px; border-radius:50%; background:var(--hud); box-shadow:0 0 6px var(--hud); }
+      .hud-fpm { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); font-size:24px; text-shadow:0 0 6px var(--hud); opacity:.92; }
+      .hud-tape { position:absolute; top:50%; transform:translateY(-50%); width:52px; height:220px; overflow:hidden;
+        -webkit-mask:linear-gradient(#0000,#000 18%,#000 82%,#0000); mask:linear-gradient(#0000,#000 18%,#000 82%,#0000); }
+      .hud-tape.L { left:9%; } .hud-tape.R { right:9%; }
+      .hud-tape .tape { position:absolute; left:0; top:50%; width:100%; }
+      .hud-tape .tape .t { position:absolute; left:0; width:100%; height:0; }
+      .hud-tape .tape .t i { position:absolute; top:-1px; height:2px; background:var(--hud); box-shadow:0 0 3px var(--hud); }
+      .hud-tape.L .tape .t i { right:0; width:12px; } .hud-tape.R .tape .t i { left:0; width:12px; }
+      .hud-tape .tape .t b { position:absolute; top:-8px; font-size:11px; font-weight:800; text-shadow:0 0 3px #000; }
+      .hud-tape.L .tape .t b { right:16px; } .hud-tape.R .tape .t b { left:16px; }
+      .hud-tape .box { position:absolute; top:50%; transform:translateY(-50%); padding:2px 5px; font-size:15px; font-weight:900;
+        background:rgba(3,20,10,.78); border:1px solid var(--hud); border-radius:3px; z-index:2; }
+      .hud-tape.L .box { right:2px; } .hud-tape.R .box { left:2px; }
+      .hud-tape .chev { position:absolute; top:50%; width:9px; height:9px; margin-top:-4.5px; border-top:2px solid var(--hud); }
+      .hud-tape.L .chev { right:0; border-left:2px solid var(--hud); transform:rotate(-45deg); }
+      .hud-tape.R .chev { left:0; border-right:2px solid var(--hud); transform:rotate(45deg); }
+      .hud-tape label { position:absolute; bottom:-18px; left:50%; transform:translateX(-50%); font-size:10px; opacity:.8; white-space:nowrap; }
+      .hud-data { position:absolute; font-size:12px; font-weight:800; letter-spacing:1px; text-shadow:0 0 4px #000; line-height:1.4; }
+      .hud-data.tl { right:60px; top:60px; text-align:right; } .hud-data.bl { left:60px; bottom:70px; }
+      /* ---------- 伊尔-2 强击机座舱 ---------- */
+      .il2-vign { position:absolute; inset:0; box-shadow:inset 0 0 200px rgba(24,15,4,.9), inset 0 0 70px rgba(0,0,0,.6);
+        background:radial-gradient(ellipse at 50% 40%, transparent 40%, rgba(20,12,4,.35)); }
+      .il2-frame { position:absolute; inset:0;
+        border-top:34px solid #201811; border-left:40px solid #1c150d; border-right:40px solid #1c150d;
+        border-image:linear-gradient(#3c2f1f,#140e07) 1; }
+      .il2-frame::before { content:''; position:absolute; inset:-34px -40px auto -40px; height:34px;
+        background:repeating-linear-gradient(90deg, transparent 0 26px, rgba(255,220,160,.16) 26px 28px, rgba(0,0,0,.4) 28px 30px, transparent 30px 56px); }  /* 顶框铆钉 */
+      .il2-frame .post { position:absolute; left:50%; top:0; width:14px; height:40%; transform:translateX(-50%);
+        background:linear-gradient(#3a2e1f,#1a130a); box-shadow:0 0 10px #000, inset 1px 0 rgba(255,220,160,.15); border-radius:0 0 3px 3px; }
+      .il2-frame .brace { position:absolute; top:34px; width:16px; height:150px; background:linear-gradient(90deg,#33271a,#180f07);
+        box-shadow:0 0 8px #000; }
+      .il2-frame .brace.l { left:40px; transform:skewX(10deg); transform-origin:top; }
+      .il2-frame .brace.r { right:40px; transform:skewX(-10deg); transform-origin:top; }
+      .il2-frame .armor { position:absolute; left:50%; top:34px; transform:translateX(-50%); width:230px; height:120px;
+        border:6px solid #241b10; border-top:0; box-shadow:0 6px 16px rgba(0,0,0,.5), inset 0 0 30px rgba(120,150,170,.06);
+        background:linear-gradient(rgba(150,180,200,.05), transparent); border-radius:0 0 4px 4px; }  /* 前方装甲玻璃框 */
+      .il2-sight { position:absolute; left:50%; top:38%; transform:translate(-50%,-50%); }
+      .il2-sight .housing { position:absolute; left:50%; top:60px; transform:translateX(-50%); width:44px; height:26px;
+        background:linear-gradient(#2a2016,#140d06); border:1px solid #4a3a24; border-radius:4px 4px 2px 2px; box-shadow:0 3px 8px rgba(0,0,0,.6); }
+      .il2-sight .ring, .il2-sight .ring2 { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); border-radius:50%; }
+      .il2-sight .ring { width:98px; height:98px; border:2px solid rgba(255,180,90,.9); box-shadow:0 0 12px rgba(255,150,50,.55), inset 0 0 16px rgba(255,150,50,.22); }
+      .il2-sight .ring2 { width:150px; height:150px; border:1px dashed rgba(255,170,80,.4); }
+      .il2-sight .cross { position:absolute; left:50%; top:50%; background:rgba(255,190,100,.8); box-shadow:0 0 6px rgba(255,150,50,.6); }
+      .il2-sight .cross.v { width:2px; height:34px; transform:translate(-50%,-50%); } .il2-sight .cross.h { width:34px; height:2px; transform:translate(-50%,-50%); }
+      .il2-sight .pip { position:absolute; left:50%; top:50%; width:8px; height:8px; margin:-4px 0 0 -4px; border-radius:50%; background:#ffcf66; box-shadow:0 0 10px #ffb040; }
+      .il2-sight .bar { position:absolute; top:50%; width:22px; height:2px; background:rgba(255,180,90,.85); box-shadow:0 0 5px rgba(255,150,50,.5); }
+      .il2-sight .bar.l{ left:-70px; } .il2-sight .bar.r{ right:-70px; }
+      #il2-panel { position:absolute; left:0; right:0; bottom:0; height:158px; z-index:1;
+        background:linear-gradient(#33271a 0%, #241a10 30%, #140d07 100%);
+        border-top:4px solid #4a3a26; box-shadow:0 -8px 24px rgba(0,0,0,.7), inset 0 3px 0 rgba(255,220,160,.08);
+        display:flex; align-items:center; justify-content:center; gap:18px; }
+      #il2-panel::before { content:''; position:absolute; inset:0; pointer-events:none;
+        background:radial-gradient(circle at 12px 12px, rgba(255,230,180,.18) 0 2px, transparent 3px) 0 0/56px 56px; opacity:.5; }  /* 铆钉纹理 */
+      .gauge { position:relative; width:96px; height:96px; }
+      .gauge .g-svg { width:100%; height:100%; filter:drop-shadow(0 2px 4px rgba(0,0,0,.6)); }
+      .gauge .g-bezel { fill:#0c0906; stroke:#5a4630; stroke-width:3; }
+      .gauge .g-face { fill:url(#gface); }
+      .gauge .g-tick { stroke:#d8c49a; stroke-width:1; } .gauge .g-tick.maj { stroke:#ffe9c0; stroke-width:2; }
+      .gauge .g-num { fill:#f0dcb0; font-size:9px; font-weight:700; text-anchor:middle; dominant-baseline:middle; }
+      .gauge .g-cap { fill:#c8a060; font-size:8px; text-anchor:middle; }
+      .gauge .g-hand { stroke:#ffe6b0; stroke-width:2.4; stroke-linecap:round; }
+      .gauge .g-hand2 { stroke:#ffcf88; stroke-width:3.4; stroke-linecap:round; }
+      .gauge .g-hub { fill:#caa46a; stroke:#6a5230; }
+      .gauge .g-glass { fill:none; stroke:rgba(255,255,255,.05); stroke-width:8; }
+      .gauge .g-arc { fill:none; stroke-width:3; }
+      /* 伊尔-2 里的圆形地平仪(复用 att-ind 的做法，但染成黄铜) */
+      .gauge.att .att-h { position:absolute; inset:6px; border-radius:50%; overflow:hidden; border:2px solid #6a5230; }
+      .gauge.att .horizon { position:absolute; left:-50%; top:-50%; width:200%; height:200%;
+        background:linear-gradient(#4a86b8 0 49.4%, #d8e6ef 49.4% 50.6%, #7a5a34 50.6% 100%); }
+      .gauge.att .wings { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); }
+      .gauge.att .wings i { position:absolute; left:50%; top:50%; height:2px; background:#ffcf66; box-shadow:0 0 3px #000; }
+      .gauge.att .wings i:nth-child(1){ width:18px; transform:translate(-50%,-50%) translateX(-16px); }
+      .gauge.att .wings i:nth-child(2){ width:18px; transform:translate(-50%,-50%) translateX(16px); }
+      .gauge.att .wings i:nth-child(3){ width:6px; transform:translate(-50%,-50%); }
+      .gauge .g-cap-lbl { position:absolute; left:50%; bottom:-2px; transform:translateX(-50%); font-size:9px; color:#c8a060; font-weight:700; white-space:nowrap; text-shadow:0 1px 2px #000; }
     </style>
 
     <!-- 第九波：当前武器 + 弹药 -->
