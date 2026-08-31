@@ -242,7 +242,9 @@
     <!-- 空战飞行仪表：水平仪(姿态) + 高度计 + 空速 + 航向 -->
     <div id="flight-hud" style="display:none;">
       <div id="att-ind">
-        <div id="att-horizon"></div>
+        <div id="att-horizon"><div id="att-ladder"></div></div>
+        <div id="att-bankscale"></div>
+        <div id="att-bankptr"></div>
         <div id="att-plane"><span></span><b></b><span></span></div>
       </div>
       <div id="fi-alt"><label>高度</label><em id="fi-alt-v">0</em> m</div>
@@ -256,6 +258,19 @@
         border:2px solid rgba(150,220,255,.6); box-shadow:0 0 12px rgba(0,0,0,.5), inset 0 0 12px rgba(0,0,0,.4); background:#0a1420; }
       #att-horizon { position:absolute; left:-75px; top:-225px; width:300px; height:600px;
         background:linear-gradient(#3aa0e0 0%, #6ec6ef 49.6%, #ffffff 49.6%, #ffffff 50.4%, #8a6a3a 50.4%, #5a3f1e 100%); }
+      /* 俯仰刻度梯（贴在地平线上，随姿态一起动） */
+      #att-ladder { position:absolute; left:0; top:300px; width:100%; height:0; }
+      #att-ladder .pl { position:absolute; left:50%; transform:translateX(-50%); height:0;
+        border-top:1.5px solid rgba(255,255,255,.85); }
+      #att-ladder .pl.up { border-top-color:rgba(230,245,255,.9); }
+      #att-ladder .pl .num { position:absolute; top:-7px; font-size:8px; color:#eef; font-weight:700; text-shadow:0 1px 1px #000; }
+      #att-ladder .pl .num.l { left:-16px; } #att-ladder .pl .num.r { right:-16px; }
+      /* 横滚刻度（固定在表盘顶部）+ 随横滚转动的指针 */
+      #att-bankscale, #att-bankptr { position:absolute; inset:0; pointer-events:none; }
+      #att-bankscale .bt { position:absolute; left:50%; top:50%; width:0; height:0; }
+      #att-bankscale .bt i { position:absolute; left:-1px; width:2px; background:rgba(210,235,255,.8); }
+      #att-bankptr::before { content:''; position:absolute; left:50%; top:8px; transform:translateX(-50%);
+        border-left:5px solid transparent; border-right:5px solid transparent; border-bottom:8px solid #ffcc33; }
       #att-plane { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); display:flex; align-items:center; gap:5px; }
       #att-plane span { width:26px; height:3px; background:#ffcc33; box-shadow:0 0 4px #000; }
       #att-plane b { width:6px; height:6px; border-radius:50%; background:#ffcc33; box-shadow:0 0 4px #000; }

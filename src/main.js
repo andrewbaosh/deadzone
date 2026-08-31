@@ -244,9 +244,32 @@ const hud = {
   jetWeapon: el('jet-weapon'),
   jetWarn: el('jet-warn'),
   diffTag: el('diff-tag'),
-  flightHud: el('flight-hud'), attHorizon: el('att-horizon'),
+  flightHud: el('flight-hud'), attHorizon: el('att-horizon'), attBankPtr: el('att-bankptr'),
   fiAlt: el('fi-alt-v'), fiSpd: el('fi-spd-v'), fiHdg: el('fi-hdg-v'),
 };
+
+// 生成水平仪刻度：俯仰刻度梯(±10/20/30/40°) + 横滚刻度(0/±10/±20/±30/±45/±60°)
+(function buildAttScales() {
+  const lad = el('att-ladder');
+  for (const d of [10, 20, 30, 40]) {
+    for (const [cls, off] of [['up', -d * 1.7], ['dn', d * 1.7]]) {
+      const line = document.createElement('div');
+      line.className = 'pl ' + cls;
+      line.style.top = off + 'px';
+      line.style.width = (d % 20 === 0 ? 52 : 32) + 'px';
+      line.innerHTML = `<span class="num l">${d}</span><span class="num r">${d}</span>`;
+      lad.appendChild(line);
+    }
+  }
+  const bs = el('att-bankscale');
+  for (const a of [-60, -45, -30, -20, -10, 0, 10, 20, 30, 45, 60]) {
+    const bt = document.createElement('div'); bt.className = 'bt';
+    bt.style.transform = `rotate(${a}deg)`;
+    const major = (a % 30 === 0);
+    bt.innerHTML = `<i style="top:${major ? -73 : -71}px;height:${major ? 9 : 6}px;background:${a === 0 ? '#ffcc33' : 'rgba(210,235,255,.8)'}"></i>`;
+    bs.appendChild(bt);
+  }
+})();
 
 function setCenterMsg(html, show = true) {
   hud.center.innerHTML = html;
@@ -1108,6 +1131,7 @@ function updateFlightHud() {
   const rollDeg = jetRoll * 180 / Math.PI;
   // 俯仰：机头朝下→地平线上移(看到更多地面)；横滚：地平线反向倾斜
   hud.attHorizon.style.transform = `rotate(${-rollDeg}deg) translateY(${pitchDeg * 1.7}px)`;
+  hud.attBankPtr.style.transform = `rotate(${-rollDeg}deg)`;   // 横滚指针随坡度转，指向固定刻度
   hud.fiAlt.textContent = Math.max(0, Math.round(jetPos.y));
   hud.fiSpd.textContent = Math.round(jetVel.length());
   hud.fiHdg.textContent = Math.round(((player.yaw * 180 / Math.PI) % 360 + 360) % 360);
