@@ -1103,12 +1103,13 @@ function updateJetFlight(dt) {
     damagePlayer(dmg, clock.elapsedTime, jetPos.clone());
   }
 
-  // 机身姿态：机头对准视线，转弯时压坡度（roll）
+  // 机身姿态：机头对准视线；协调转弯——顺着转向压坡度(向左转→左翼下沉)，与帧率无关
   const yaw = Math.atan2(-_jfwd.x, -_jfwd.z);
   const pitch = Math.asin(Math.max(-1, Math.min(1, _jfwd.y)));
-  const yawRate = angDelta(yaw, jetLastYaw); jetLastYaw = yaw;
-  const targetRoll = Math.max(-0.9, Math.min(0.9, -yawRate * 7));
-  jetRoll += (targetRoll - jetRoll) * Math.min(1, dt * 5);
+  const yawVel = angDelta(yaw, jetLastYaw) / Math.max(dt, 1e-4); jetLastYaw = yaw;   // 转向角速度 rad/s
+  // 协调转弯：压坡度压进转弯方向——向左转→左翼下沉(机身顶朝右倾)，向右转→右翼下沉；转得越急坡度越大(最多约 68°)
+  const targetRoll = Math.max(-1.2, Math.min(1.2, -yawVel * 0.5));
+  jetRoll += (targetRoll - jetRoll) * Math.min(1, dt * 4);
   playerJet.root.position.copy(jetPos);
   playerJet.root.rotation.set(pitch, yaw, jetRoll);
   if (playerJet.glow) playerJet.glow.material.opacity = 0.6 + 0.4 * Math.random();
@@ -1129,9 +1130,9 @@ function updateFlightHud() {
   hud.flightHud.style.display = 'flex';
   const pitchDeg = player.pitch * 180 / Math.PI;   // 正 = 机头朝下(俯冲)
   const rollDeg = jetRoll * 180 / Math.PI;
-  // 俯仰：机头朝下→地平线上移(看到更多地面)；横滚：地平线反向倾斜
-  hud.attHorizon.style.transform = `rotate(${-rollDeg}deg) translateY(${pitchDeg * 1.7}px)`;
-  hud.attBankPtr.style.transform = `rotate(${-rollDeg}deg)`;   // 横滚指针随坡度转，指向固定刻度
+  // 姿态仪：地平线相对水平机翼符号反向倾斜(与真实姿态仪一致)；俯仰让地平线上下移
+  hud.attHorizon.style.transform = `rotate(${rollDeg}deg) translateY(${-pitchDeg * 1.7}px)`;
+  hud.attBankPtr.style.transform = `rotate(${rollDeg}deg)`;   // 横滚指针随坡度转，指向固定刻度
   hud.fiAlt.textContent = Math.max(0, Math.round(jetPos.y));
   hud.fiSpd.textContent = Math.round(jetVel.length());
   hud.fiHdg.textContent = Math.round(((player.yaw * 180 / Math.PI) % 360 + 360) % 360);
@@ -2502,6 +2503,7 @@ window.__game = {
   w9SpawnMinion() { if (w9Boss) w9SpawnMinion(); return w9Units.length; },
   jetDive(p) { player.pitch = p ?? 1.3; return player.pitch; },
   setJetPos(x, y, z) { jetPos.set(x, y, z); player.pos.copy(jetPos); return jetPos.toArray(); },
+  get jetRoll() { return +jetRoll.toFixed(3); },
   get jetCrash() { return jetCrashCount; },
   get bossHp() { return boss ? Math.round(boss.hp) : null; },
   get allyJetCount2() { return allyJets.length; },
