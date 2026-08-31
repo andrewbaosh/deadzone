@@ -237,7 +237,7 @@
       <div id="weapon-name">步枪 AR-15</div>
       <div id="weapon-hint">1-8 换武器 · Z 冷冻发射器 X 冰罐 V 震撼弹 · Q 切上一把 · 右键/F 开镜 · R 换弹 · M 音乐</div>
     </div>
-    <div id="jet-hint" style="position:absolute;right:14px;bottom:12px;z-index:12;color:#bcd6ff;font-size:12px;letter-spacing:1px;text-shadow:0 1px 3px #000;opacity:.85;">✈ 鼠标转向 · W/S 油门 · 左键机炮 · 长按 <b>2</b> 锁定导弹（松开发射）</div>
+    <div id="jet-hint" style="position:absolute;right:14px;bottom:12px;z-index:12;color:#bcd6ff;font-size:12px;letter-spacing:1px;text-shadow:0 1px 3px #000;opacity:.85;">✈ 鼠标转向 · W/S 油门 · 左键机炮 · 长按 <b>2</b> 锁定导弹 · <b>C</b> 座舱视角</div>
     <div id="diff-tag" style="display:none;position:absolute;left:16px;top:150px;z-index:12;font-weight:800;letter-spacing:1px;color:#8fe6b0;text-shadow:0 1px 3px #000;font-size:13px;">困难 · 孤身</div>
     <!-- 空战飞行仪表：水平仪(姿态) + 高度计 + 空速 + 航向 -->
     <div id="flight-hud" style="display:none;">
@@ -280,6 +280,67 @@
       #fi-alt, #fi-spd, #fi-hdg { display:flex; flex-direction:column; align-items:center; min-width:64px;
         padding:6px 8px; border-radius:8px; background:rgba(10,20,32,.6); border:1px solid rgba(150,220,255,.35); }
     </style>
+
+    <!-- ===== 座舱内视角(按 C 切换) ===== -->
+    <!-- 现代战机 HUD：绿色投影 + 玻璃座舱框 -->
+    <div id="cockpit-modern" style="display:none;">
+      <div class="hud-frame"></div>
+      <div id="hud-ladder"></div>
+      <div class="hud-bore"><span></span><span></span><i></i></div>
+      <div class="hud-fpm">⊕</div>
+    </div>
+    <!-- 二战伊尔-2 强击机：金属座舱框 + 反射瞄准具 -->
+    <div id="cockpit-il2" style="display:none;">
+      <div class="il2-canopy"></div>
+      <div class="il2-sight"><div class="ring"></div><div class="pip"></div><div class="bar l"></div><div class="bar r"></div></div>
+      <div class="il2-panel"></div>
+    </div>
+    <style>
+      /* 座舱通用：进座舱隐藏准星 */
+      body.cockpit #crosshair { display:none !important; }
+      /* 现代 HUD 座舱：俯仰梯已表示姿态，隐藏底部圆形水平仪(只留 高度/空速/航向) */
+      body.ck-modern.cockpit #att-ind { display:none !important; }
+      body.ck-modern.cockpit #flight-hud em { color:#8fffc0; } body.ck-modern.cockpit #flight-hud label { color:#5fdf9f; }
+      body.ck-modern.cockpit #fi-alt, body.ck-modern.cockpit #fi-spd, body.ck-modern.cockpit #fi-hdg {
+        background:rgba(6,24,14,.6); border-color:rgba(70,255,140,.45); }
+      #cockpit-modern, #cockpit-il2 { position:absolute; inset:0; z-index:11; pointer-events:none; }
+      /* --- 现代战机 HUD（绿色） --- */
+      .hud-frame { position:absolute; inset:0; box-shadow:inset 0 0 120px rgba(0,0,0,.7), inset 0 0 40px rgba(0,0,0,.5);
+        border:14px solid rgba(8,14,10,.55); border-radius:26px; }
+      #hud-ladder { position:absolute; left:50%; top:50%; width:0; height:0; }
+      #hud-ladder .hl { position:absolute; left:50%; transform:translateX(-50%); height:0; border-top:2px solid #46ff86;
+        box-shadow:0 0 4px rgba(60,255,140,.6); }
+      #hud-ladder .hl.dn { border-top-style:dashed; }
+      #hud-ladder .hl .n { position:absolute; top:-8px; font-size:11px; color:#46ff86; font-weight:800; text-shadow:0 0 4px #000; }
+      #hud-ladder .hl .n.l { left:-24px; } #hud-ladder .hl .n.r { right:-24px; }
+      .hud-bore { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); }
+      .hud-bore span { position:absolute; left:50%; top:50%; width:22px; height:2px; background:#46ff86; box-shadow:0 0 5px #46ff86; }
+      .hud-bore span:nth-child(1){ transform:translate(-50%,-50%) translateX(-20px); }
+      .hud-bore span:nth-child(2){ transform:translate(-50%,-50%) translateX(20px); }
+      .hud-bore i { position:absolute; left:50%; top:50%; width:6px; height:6px; margin:-3px 0 0 -3px; border-radius:50%; background:#46ff86; box-shadow:0 0 6px #46ff86; }
+      .hud-fpm { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); color:#46ff86; font-size:26px; text-shadow:0 0 6px #46ff86; opacity:.9; }
+      /* --- 伊尔-2 强击机座舱 --- */
+      .il2-canopy { position:absolute; inset:0;
+        box-shadow:inset 0 0 160px rgba(20,14,6,.85), inset 0 0 60px rgba(0,0,0,.6);
+        border-top:26px solid #2a2118; border-left:34px solid #241c14; border-right:34px solid #241c14;
+        border-image:linear-gradient(#3a2e20,#1a140d) 1; }
+      .il2-canopy::before { content:''; position:absolute; left:50%; top:0; width:10px; height:46%; transform:translateX(-50%);
+        background:linear-gradient(#3a2e20,#241c14); box-shadow:0 0 8px #000; }  /* 中框 */
+      .il2-sight { position:absolute; left:50%; top:44%; transform:translate(-50%,-50%); }
+      .il2-sight .ring { width:96px; height:96px; border:2px solid rgba(255,180,90,.85); border-radius:50%; box-shadow:0 0 10px rgba(255,160,60,.6), inset 0 0 14px rgba(255,160,60,.25); }
+      .il2-sight .pip { position:absolute; left:50%; top:50%; width:7px; height:7px; margin:-3.5px 0 0 -3.5px; border-radius:50%; background:#ffcc55; box-shadow:0 0 8px #ffb040; }
+      .il2-sight .bar { position:absolute; top:50%; width:26px; height:2px; background:rgba(255,180,90,.8); }
+      .il2-sight .bar.l{ left:-34px; } .il2-sight .bar.r{ right:-34px; }
+      .il2-panel { position:absolute; left:0; right:0; bottom:0; height:120px;
+        background:linear-gradient(#2b2117,#171009); border-top:3px solid #4a3a26; box-shadow:0 -6px 20px rgba(0,0,0,.6); }
+      /* 伊尔-2 座舱时，把飞行仪表染成黄铜色并压到面板里 */
+      body.ck-il2.cockpit #flight-hud { bottom:8px; }
+      body.ck-il2.cockpit #att-ind { border-color:rgba(200,150,80,.7); box-shadow:0 0 10px rgba(0,0,0,.6), inset 0 0 14px rgba(60,40,15,.5); }
+      body.ck-il2.cockpit #fi-alt, body.ck-il2.cockpit #fi-spd, body.ck-il2.cockpit #fi-hdg {
+        background:rgba(40,28,14,.75); border-color:rgba(200,150,80,.5); color:#ffdca0; }
+      body.ck-il2.cockpit #flight-hud em { color:#ffe6b0; } body.ck-il2.cockpit #flight-hud label { color:#c8a060; }
+    </style>
+
     <!-- 第九波：当前武器 + 弹药 -->
     <div id="jet-weapon" style="display:none;position:absolute;right:16px;bottom:44px;z-index:12;text-align:right;color:#dff2ff;font-weight:800;letter-spacing:1px;text-shadow:0 1px 3px #000;font-size:15px;"></div>
     <!-- 第九波：防空车开火预警（屏幕底部） -->

@@ -192,6 +192,8 @@ const jetPos = new THREE.Vector3();
 const jetVel = new THREE.Vector3();
 const _jfwd = new THREE.Vector3();
 const _jtmp = new THREE.Vector3();
+const _camEye = new THREE.Vector3();
+let cockpitView = false;                     // 第一人称座舱视角(按 C 切换)
 const _uz = new THREE.Vector3(0, 0, 1);
 const _segA = new THREE.Vector3(), _segP = new THREE.Vector3();
 // 点到线段(a→b)的最近距离平方——用于高速子弹的“扫掠”命中，避免一帧穿过目标
@@ -246,6 +248,7 @@ const hud = {
   diffTag: el('diff-tag'),
   flightHud: el('flight-hud'), attHorizon: el('att-horizon'), attBankPtr: el('att-bankptr'),
   fiAlt: el('fi-alt-v'), fiSpd: el('fi-spd-v'), fiHdg: el('fi-hdg-v'),
+  cockpitModern: el('cockpit-modern'), cockpitIl2: el('cockpit-il2'), hudLadder: el('hud-ladder'),
 };
 
 // 生成水平仪刻度：俯仰刻度梯(±10/20/30/40°) + 横滚刻度(0/±10/±20/±30/±45/±60°)
@@ -269,7 +272,29 @@ const hud = {
     bt.innerHTML = `<i style="top:${major ? -73 : -71}px;height:${major ? 9 : 6}px;background:${a === 0 ? '#ffcc33' : 'rgba(210,235,255,.8)'}"></i>`;
     bs.appendChild(bt);
   }
+  // 现代 HUD 的俯仰梯（屏幕中央、绿色，随姿态滚动）
+  const hl = el('hud-ladder'), HPX = 7;   // 每度像素
+  for (const d of [10, 20, 30, 40, 50]) {
+    for (const [cls, off] of [['up', -d * HPX], ['dn', d * HPX]]) {
+      const line = document.createElement('div');
+      line.className = 'hl ' + cls;
+      line.style.top = off + 'px';
+      line.style.width = (d <= 30 ? 92 : 68) + 'px';
+      line.innerHTML = `<span class="n l">${d}</span><span class="n r">${d}</span>`;
+      hl.appendChild(line);
+    }
+  }
 })();
+
+// 座舱视角：切换机身/座舱框显隐 + 现代/伊尔-2 风格
+function updateCockpitChrome() {
+  const on = cockpitView && jetMode;
+  document.body.classList.toggle('cockpit', on);
+  document.body.classList.toggle('ck-modern', on && jetWave !== 9);
+  document.body.classList.toggle('ck-il2', on && jetWave === 9);
+  hud.cockpitModern.style.display = (on && jetWave !== 9) ? 'block' : 'none';
+  hud.cockpitIl2.style.display = (on && jetWave === 9) ? 'block' : 'none';
+}
 
 function setCenterMsg(html, show = true) {
   hud.center.innerHTML = html;
@@ -392,6 +417,8 @@ document.addEventListener('keydown', (e) => {
     if (e.code === 'Escape') { cancelAiming(); return; }
   }
   player.onKey(e.code, true);
+  // 空战：C 键在座舱内视角 / 第三人称之间切换
+  if (jetMode && e.code === 'KeyC') { cockpitView = !cockpitView; updateCockpitChrome(); e.preventDefault(); }
   // 第九波空中打 BOSS：1/2/3 切换 机炮 / 反坦克导弹 / 空对地锁定导弹
   if (jetMode && jetWave === 9 && (e.code === 'Digit1' || e.code === 'Digit2' || e.code === 'Digit3')) {
     jetWeapon = +e.code.slice(5); w9WeaponCd = 0; updateW9WeaponHud(); flashWaveBanner(['', '① 机炮', '② 反坦克导弹', '③ 空对地锁定导弹'][jetWeapon]);
@@ -997,6 +1024,7 @@ function enterJetMode(w = 8) {
   player.freePitch = true;                    // 空战解锁俯仰：能拉筋斗/垂直翻身
   jetCannonCd = jetMissileCd = jetLockTimer = 0; jetLockTarget = null;
   jetCrashCount = 0; jetCrashCd = 0;
+  cockpitView = false;
 
   if (w === 9) {
     wave = 空战九.波数;
@@ -1021,6 +1049,7 @@ function enterJetMode(w = 8) {
   }
   // 简单模式：升空即给僚机（无论从哪条路进空战都补上）
   spawnDifficultyHelpers();
+  updateCockpitChrome();
 }
 
 function clearWave9() {
@@ -1049,6 +1078,7 @@ function exitJetMode() {
   hud.jetWarn.style.display = 'none';
   hud.flightHud.style.display = 'none';
   player.freePitch = false;
+  cockpitView = false; updateCockpitChrome();
   minimap.setVisible(true);
 }
 
@@ -1114,9 +1144,18 @@ function updateJetFlight(dt) {
   playerJet.root.rotation.set(pitch, yaw, jetRoll);
   if (playerJet.glow) playerJet.glow.material.opacity = 0.6 + 0.4 * Math.random();
 
-  // 第三人称追尾相机
-  camera.position.set(jetPos.x - _jfwd.x * 15, jetPos.y - _jfwd.y * 15 + 3.2, jetPos.z - _jfwd.z * 15);
-  camera.lookAt(jetPos.x + _jfwd.x * 40, jetPos.y + _jfwd.y * 40, jetPos.z + _jfwd.z * 40);
+  if (cockpitView) {
+    // 第一人称座舱：相机在座舱眼位，朝向=机身姿态(随横滚/俯仰一起翻)，世界会跟着倾斜
+    playerJet.root.visible = false;
+    const eye = _camEye.set(0, 0.55, -0.35); playerJet.root.localToWorld(eye);
+    camera.position.copy(eye);
+    camera.quaternion.copy(playerJet.root.quaternion);   // 机身姿态 → 相机(机头是本地 -Z，正好是相机视线)
+  } else {
+    // 第三人称追尾相机
+    playerJet.root.visible = true;
+    camera.position.set(jetPos.x - _jfwd.x * 15, jetPos.y - _jfwd.y * 15 + 3.2, jetPos.z - _jfwd.z * 15);
+    camera.lookAt(jetPos.x + _jfwd.x * 40, jetPos.y + _jfwd.y * 40, jetPos.z + _jfwd.z * 40);
+  }
   if (shakeAmount > 0.001) {
     camera.position.x += (Math.random() - 0.5) * shakeAmount;
     camera.position.y += (Math.random() - 0.5) * shakeAmount;
@@ -1136,6 +1175,10 @@ function updateFlightHud() {
   hud.fiAlt.textContent = Math.max(0, Math.round(jetPos.y));
   hud.fiSpd.textContent = Math.round(jetVel.length());
   hud.fiHdg.textContent = Math.round(((player.yaw * 180 / Math.PI) % 360 + 360) % 360);
+  // 现代座舱 HUD：中央绿色俯仰梯随姿态滚动/上下(固定准星 = 机头基准)
+  if (cockpitView && jetWave !== 9) {
+    hud.hudLadder.style.transform = `rotate(${-rollDeg}deg) translateY(${-pitchDeg * 7}px)`;
+  }
 }
 
 function updateJetMode(dt, time) {
@@ -2504,6 +2547,8 @@ window.__game = {
   jetDive(p) { player.pitch = p ?? 1.3; return player.pitch; },
   setJetPos(x, y, z) { jetPos.set(x, y, z); player.pos.copy(jetPos); return jetPos.toArray(); },
   get jetRoll() { return +jetRoll.toFixed(3); },
+  toggleCockpit() { cockpitView = !cockpitView; updateCockpitChrome(); return cockpitView; },
+  get cockpitView() { return cockpitView; },
   get jetCrash() { return jetCrashCount; },
   get bossHp() { return boss ? Math.round(boss.hp) : null; },
   get allyJetCount2() { return allyJets.length; },
