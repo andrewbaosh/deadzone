@@ -319,6 +319,8 @@
     <style>
       body.cockpit #crosshair { display:none !important; }
       body.cockpit #flight-hud { display:none !important; }   /* 座舱内用各自的仪表 */
+      /* 伊尔-2 仪表盘会盖住左下血条：把血条抬到面板上方并置顶 */
+      body.ck-il2.cockpit #health { bottom:170px; z-index:20; }
       #cockpit-modern, #cockpit-il2 { position:absolute; inset:0; z-index:11; pointer-events:none; overflow:hidden; }
       /* ---------- 现代战机 HUD（绿色玻璃投影） ---------- */
       #cockpit-modern { --hud:#4dff92; }
@@ -394,7 +396,8 @@
       .il2-frame .armor { position:absolute; left:50%; top:34px; transform:translateX(-50%); width:230px; height:120px;
         border:6px solid #241b10; border-top:0; box-shadow:0 6px 16px rgba(0,0,0,.5), inset 0 0 30px rgba(120,150,170,.06);
         background:linear-gradient(rgba(150,180,200,.05), transparent); border-radius:0 0 4px 4px; }  /* 前方装甲玻璃框 */
-      .il2-sight { position:absolute; left:50%; top:38%; transform:translate(-50%,-50%); }
+      /* 瞄准环对齐真实射向(=相机正前方=屏幕中心)，之前偏上导致弹着偏低 */
+      .il2-sight { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); }
       .il2-sight .housing { position:absolute; left:50%; top:60px; transform:translateX(-50%); width:44px; height:26px;
         background:linear-gradient(#2a2016,#140d06); border:1px solid #4a3a24; border-radius:4px 4px 2px 2px; box-shadow:0 3px 8px rgba(0,0,0,.6); }
       .il2-sight .ring, .il2-sight .ring2 { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); border-radius:50%; }
