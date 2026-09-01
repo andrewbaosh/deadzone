@@ -304,8 +304,11 @@
       <div class="il2-vign"></div>
       <div class="ck-grime warm"></div><div class="ck-smudge"></div><div class="ck-scratch"></div>
       <div class="il2-frame">
-        <div class="post"></div><div class="brace l"></div><div class="brace r"></div>
+        <div class="brace l"></div><div class="brace r"></div>
         <div class="armor"></div>
+        <div class="wtop"></div>
+        <div class="wpost l"></div><div class="wpost r"></div>
+        <div class="post"></div>
       </div>
       <div class="il2-sight">
         <div class="glassplate"></div>
@@ -387,15 +390,28 @@
         border-image:linear-gradient(#3c2f1f,#140e07) 1; }
       .il2-frame::before { content:''; position:absolute; inset:-34px -40px auto -40px; height:34px;
         background:repeating-linear-gradient(90deg, transparent 0 26px, rgba(255,220,160,.16) 26px 28px, rgba(0,0,0,.4) 28px 30px, transparent 30px 56px); }  /* 顶框铆钉 */
-      .il2-frame .post { position:absolute; left:50%; top:0; width:14px; height:40%; transform:translateX(-50%);
-        background:linear-gradient(#3a2e1f,#1a130a); box-shadow:0 0 10px #000, inset 1px 0 rgba(255,220,160,.15); border-radius:0 0 3px 3px; }
+      .il2-frame .post { position:absolute; left:50%; top:0; width:12px; height:32px; transform:translateX(-50%);
+        background:linear-gradient(#3c3021,#1a130a); box-shadow:0 0 8px #000, inset 1px 0 rgba(255,220,160,.15); border-radius:0 0 3px 3px; }
       .il2-frame .brace { position:absolute; top:34px; width:16px; height:150px; background:linear-gradient(90deg,#33271a,#180f07);
         box-shadow:0 0 8px #000; }
       .il2-frame .brace.l { left:40px; transform:skewX(10deg); transform-origin:top; }
       .il2-frame .brace.r { right:40px; transform:skewX(-10deg); transform-origin:top; }
-      .il2-frame .armor { position:absolute; left:50%; top:34px; transform:translateX(-50%); width:230px; height:120px;
-        border:6px solid #241b10; border-top:0; box-shadow:0 6px 16px rgba(0,0,0,.5), inset 0 0 30px rgba(120,150,170,.06);
-        background:linear-gradient(rgba(150,180,200,.05), transparent); border-radius:0 0 4px 4px; }  /* 前方装甲玻璃框 */
+      /* 前风挡装甲玻璃(单块防弹玻璃)——占据正前方视野，从顶框到仪表盘，瞄准环在其中 */
+      .il2-frame .armor { position:absolute; left:50%; top:36px; transform:translateX(-50%); width:42%; max-width:470px; min-width:330px; height:calc(100% - 208px);
+        border:8px solid; border-color:#4a3822 #2a2013 #2a2013; border-top:0; border-image:linear-gradient(#513c22,#160f08) 1;
+        box-shadow:0 8px 24px rgba(0,0,0,.6), inset 0 0 46px rgba(140,170,190,.05), inset 0 0 0 1px rgba(255,225,175,.05);
+        background:linear-gradient(158deg, rgba(150,180,200,.06), transparent 40% 60%, rgba(180,200,215,.05)); border-radius:0 0 5px 5px; }
+      /* 顶部风挡横加强筋(带铆钉) */
+      .il2-frame .wtop { position:absolute; left:50%; top:28px; transform:translateX(-50%); width:46%; max-width:500px; min-width:360px; height:16px; border-radius:3px; z-index:2;
+        background:linear-gradient(#4e3d26,#251a0e); box-shadow:0 3px 10px rgba(0,0,0,.65), inset 0 2px rgba(255,228,178,.22), inset 0 -2px rgba(0,0,0,.55);
+        background-image:repeating-linear-gradient(90deg, transparent 0 24px, rgba(255,225,175,.24) 24px 26px, rgba(0,0,0,.5) 26px 28px, transparent 28px 52px); }
+      /* 两侧竖加强筋(A 柱/风挡框)——沿装甲玻璃两侧，略外斜 */
+      .il2-frame .wpost { position:absolute; top:34px; width:16px; height:calc(100% - 206px); z-index:2;
+        background:linear-gradient(90deg,#4a3824,#160f08 55%,#0b0704);
+        box-shadow:0 0 10px #000, inset 3px 0 rgba(255,228,178,.2), inset -2px 0 rgba(0,0,0,.55); border-radius:2px;
+        background-image:repeating-linear-gradient(0deg, transparent 0 22px, rgba(255,225,175,.14) 22px 24px, transparent 24px 46px); }
+      .il2-frame .wpost.l { left:calc(50% - 21% - 8px); transform-origin:top center; transform:rotate(-2.5deg); }
+      .il2-frame .wpost.r { left:calc(50% + 21% - 8px); transform-origin:top center; transform:rotate(2.5deg); }
       /* 瞄准环对齐真实射向(=相机正前方=屏幕中心)，之前偏上导致弹着偏低 */
       .il2-sight { position:absolute; left:50%; top:50%; transform:translate(-50%,-50%); }
       .il2-sight .housing { position:absolute; left:50%; top:60px; transform:translateX(-50%); width:44px; height:26px;
