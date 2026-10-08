@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node scripts/selftest.mjs",
+    "test:menu": "node scripts/selftest.mjs test-results/menu.png menu"
   },
   "keywords": [],
   "author": "",

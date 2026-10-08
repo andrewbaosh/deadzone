@@ -1,6 +1,8 @@
-# deadzone —— 项目交接文档（给 qwen code）
+# deadzone —— 项目交接文档
 
 > 浏览器丧尸波次 FPS，父子业余项目。中文变量名贯穿全代码。请沿用现有风格与约定。
+
+> Codex 接手入口见 `AGENTS.md`；本文保留游戏系统细节。
 
 ## 1. 技术栈 / 运行 / 部署
 - **Three.js 0.185 + Vite 8**，纯客户端、无后端、无网络请求。体素美术（贪婪网格合并 `greedyMesh`）。
@@ -10,7 +12,7 @@
 
 ## 2. 开发约定（务必遵守）
 - **改完必须 `npm run build` 确认 0 报错**再提交。
-- 提交用：`git -c user.name="AndrewBao" -c user.email="andrewbaoit@gmail.com" commit`，中文 message，结尾带 `Co-Authored-By`。做完一个功能就提交并 push origin main。
+- 用户已授权后续改动验证通过后自动提交并推送 origin main，无需再次确认；提交说明使用中文，作者沿用当前 Git 配置。推送后检查 GitHub Pages 部署结果和公网页面；用户明确要求暂不发布时除外。
 - **所有可调数值集中在 `src/config/gameplay.js`**（父子调参主要改这里）；基础武器/玩家数值在 `src/config.js`。加功能时把数值抽到 config，不要写死。
 - 平衡反馈常见词：「太超模」= 需要削弱。
 - 无自动化测试框架。验证用 **Playwright headless**（`--use-gl=angle --use-angle=swiftshader --enable-unsafe-swiftshader`）驱动 `window.__game` 调试钩子；注意 headless 有 **dt 钳制导致约 1/4~1/10 慢放**，计时类验证要多等真实时间。浏览器预览面板在**未聚焦时会节流 requestAnimationFrame**，帧不推进属正常，用 headless 或前置标签页验证。

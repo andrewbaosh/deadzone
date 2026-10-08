@@ -161,6 +161,10 @@
       overflow-y: auto; padding: 16px 12px 24px;
       background: radial-gradient(ellipse at center, rgba(14,20,28,.82), rgba(4,6,10,.96));
       cursor: pointer; text-align: center; }
+    .start-version { position: absolute; right: max(16px, env(safe-area-inset-right));
+      bottom: max(12px, env(safe-area-inset-bottom)); font-size: 11px; line-height: 1.4;
+      color: #94a3b8; letter-spacing: .5px; font-variant-numeric: tabular-nums;
+      pointer-events: none; }
     .start-title { font-size: 38px; font-weight: 900; letter-spacing: 5px; color: #ff4a3a;
       text-shadow: 0 0 30px rgba(255,74,58,.5), 0 4px 12px #000; margin-bottom: 3px; }
     .start-sub { font-size: 14px; opacity: .85; margin-bottom: 12px; }
@@ -638,6 +642,7 @@
   </div>
 
   <div id="start-overlay">
+    <small class="start-version" aria-label="游戏版本 %APP_VERSION%">v%APP_VERSION%</small>
     <div class="start-title">丧尸围城</div>
     <div class="start-sub">撑过几波丧尸 → 撤离点开启 → 杀到发光光柱处撤离获胜！</div>
     <div class="controls">
