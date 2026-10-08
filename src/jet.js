@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { disposeObject } from './graphics/disposeObject.js';
 
 /**
  * 第八波·空战用的战斗机。
@@ -43,6 +44,23 @@ function buildJet(c) {
 const PLAYER_COLORS = { body: 0x5a6b8a, dark: 0x2f3c52, glass: 0x8fd8f0, glow: 0x66ccff };
 const ZOMBIE_COLORS = { body: 0x4a5a30, dark: 0x2a3018, glass: 0x9a3a3a, glow: 0xff5522 };
 
+function makeAllyLabel(side) {
+  const canvas = document.createElement('canvas');
+  canvas.width = 256; canvas.height = 64;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = 'rgba(4, 24, 20, 0.85)'; ctx.fillRect(0, 0, 256, 64);
+  ctx.strokeStyle = '#66ffbb'; ctx.lineWidth = 3; ctx.strokeRect(2, 2, 252, 60);
+  ctx.fillStyle = '#99ffcc'; ctx.font = 'bold 32px sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(`友军 ${side < 0 ? 1 : 2}`, 128, 32);
+  const label = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: new THREE.CanvasTexture(canvas), depthWrite: false, toneMapped: false,
+  }));
+  label.name = 'ally-label';
+  label.position.y = 2.2; label.scale.set(6, 1.5, 1);
+  return label;
+}
+
 export class PlayerJet {
   constructor(scene) {
     const b = buildJet(PLAYER_COLORS);
@@ -52,7 +70,7 @@ export class PlayerJet {
   }
   // 机头世界坐标（机炮/导弹发射起点）
   noseWorld(out) { out.set(0, 0, -3.5); this.root.localToWorld(out); return out; }
-  remove() { this.scene.remove(this.root); }
+  remove() { disposeObject(this.root); }
 }
 
 export class ZombieJet {
@@ -102,7 +120,7 @@ export class ZombieJet {
     }
     return null;
   }
-  remove() { this.scene.remove(this.root); }
+  remove() { disposeObject(this.root); }
 }
 
 /**
@@ -113,6 +131,7 @@ export class AllyJet {
   constructor(scene, pos, side, cfg) {
     const b = buildJet(PLAYER_COLORS);
     this.root = b.group; this.glow = b.glow; this.scene = scene; this.cfg = cfg;
+    this.root.add(makeAllyLabel(side));
     this.root.rotation.order = 'YXZ';
     this.root.position.copy(pos);
     this.side = side;                       // 站位偏移方向 (-1/1)
@@ -147,5 +166,5 @@ export class AllyJet {
     }
     return null;
   }
-  remove() { this.scene.remove(this.root); }
+  remove() { disposeObject(this.root); }
 }

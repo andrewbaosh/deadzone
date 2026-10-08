@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { disposeObject } from './graphics/disposeObject.js';
 
 /**
  * 友军坦克（玩家可驾驶）。停在要塞里，靠近按 F 上车。
@@ -66,5 +67,5 @@ export class Tank {
     }
   }
 
-  remove() { this.scene.remove(this.root); }
+  remove() { disposeObject(this.root); }
 }

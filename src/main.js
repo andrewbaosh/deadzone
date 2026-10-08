@@ -29,6 +29,7 @@ import { RifleBoss } from './rifleBoss.js';
 import { Bomber } from './bomber.js';
 import { Tank } from './tank.js';
 import { PlayerJet, ZombieJet, AllyJet } from './jet.js';
+import { disposeObject } from './graphics/disposeObject.js';
 import { Teammate } from './teammate.js';
 import { Wave9Boss, AAVehicle, TankVehicle } from './groundunits.js';
 import { Abilities } from './abilities.js';
@@ -121,6 +122,23 @@ let heartbeatTimer = 0;                         // 低血心跳计时
 /* ============ 游戏状态 ============ */
 const STATE = { MENU: 0, PLAYING: 1, DEAD: 2, WIN: 3 };
 let state = STATE.MENU;
+let paused = false;
+let simulationTime = 0;
+
+function clearHeldInput() {
+  player.keys = {}; player.wantJump = false;
+  mouseHeld = false; rightHeld = false;
+  weapons.setTrigger(false);
+  jetLockTimer = 0; jetLockTarget = null;
+}
+
+function pauseGame() {
+  if (state !== STATE.PLAYING || callInOpen) return;
+  paused = true;
+  clearHeldInput();
+  stopMusic(); stopAmbient();
+  pauseMenu.style.display = 'flex';
+}
 
 let score = 0;
 let wave = 0;
@@ -367,6 +385,7 @@ selWave = 1; selDiff = 0; refreshMenu();
 document.addEventListener('pointerlockchange', () => {
   const locked = document.pointerLockElement === canvas;
   if (locked) {
+    paused = false;
     startOverlay.style.display = 'none';
     pauseMenu.style.display = 'none';
     if (state === STATE.MENU) startFreshGame();
@@ -375,18 +394,14 @@ document.addEventListener('pointerlockchange', () => {
     if (声音.开背景音乐) startMusic();
     if (音效氛围.环境drone) startAmbient();
   } else {
-    if (state === STATE.PLAYING && !callInOpen) {
-      // 暂停：停掉音乐 + 环境，弹出暂停菜单（打开支援界面时不算暂停）
-      stopMusic();
-      stopAmbient();
-      pauseMenu.style.display = 'flex';
-    }
+    pauseGame();
   }
 });
 
 // 切到别的标签页/窗口时停音乐，切回来且正在游戏中再续上
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
+    pauseGame();
     stopMusic();
     stopAmbient();
   } else if (state === STATE.PLAYING && document.pointerLockElement === canvas) {
@@ -398,7 +413,7 @@ document.addEventListener('visibilitychange', () => {
 /* ============ 输入 ============ */
 document.addEventListener('keydown', (e) => {
   if (state === STATE.MENU && startOverlay.style.display !== 'none') { menuKey(e); return; }
-  if (state !== STATE.PLAYING) return;
+  if (state !== STATE.PLAYING || paused) return;
   // G：召唤支援（开菜单 / 取消瞄准）
   if (e.code === 'KeyG') { e.preventDefault(); if (jetMode) return; if (callInOpen) closeCallIn(); else if (aimingStrike) cancelAiming(); else openCallIn(); return; }
   // 菜单打开：按 1/2/3/4 选支援，Esc 关闭（其他键屏蔽）
@@ -451,13 +466,14 @@ document.addEventListener('keydown', (e) => {
 document.addEventListener('keyup', (e) => player.onKey(e.code, false));
 
 document.addEventListener('mousemove', (e) => {
+  if (paused) return;
   if (document.pointerLockElement !== canvas) return;
   if (callInOpen) return;   // 支援菜单打开(冻结)时不转视角，避免松开后画面跳
   player.onMouseMove(e.movementX, e.movementY);
 });
 
 document.addEventListener('mousedown', (e) => {
-  if (state === STATE.DEAD) return;
+  if (state !== STATE.PLAYING || paused) return;
   if (document.pointerLockElement !== canvas) return;
   if (e.button === 0) {
     if (aimingStrike) { confirmAiming(); return; }
@@ -475,7 +491,7 @@ document.addEventListener('contextmenu', (e) => e.preventDefault());
 
 // 滚轮换枪
 document.addEventListener('wheel', (e) => {
-  if (state !== STATE.PLAYING) return;
+  if (state !== STATE.PLAYING || paused || jetMode) return;
   const i = weapons.slots.indexOf(weapons.current);
   const n = weapons.slots.length;
   const next = (i + (e.deltaY > 0 ? 1 : -1) + n) % n;
@@ -484,6 +500,9 @@ document.addEventListener('wheel', (e) => {
 
 /* ============ 波次逻辑 ============ */
 function startFreshGame() {
+  paused = false;
+  pauseMenu.style.display = 'none';
+  clearHeldInput();
   // 清场
   for (const en of enemies) en.remove();
   enemies = [];
@@ -514,11 +533,7 @@ function startFreshGame() {
     switchMap(level, 'town');
   }
   player.respawn();
-  for (const k of weapons.slots) {
-    weapons.ammo[k] = { mag: 武器Config(k).弹匣, reserve: 武器Config(k).备弹 };
-  }
-  weapons.current = '步枪';
-  weapons.buildViewModel();
+  weapons.reset();
   state = STATE.PLAYING;
   aimToggle = false; rightHeld = false; aiming = false;
   prevWeaponName = weapons.current;
@@ -817,7 +832,7 @@ function spawnBoss() {
   enemies = [];
   const spawn = new THREE.Vector3(0, 0, -26);
   boss = new Boss(scene, spawn, wave, {
-    damagePlayer: (dmg, src) => { if (player.alive) damagePlayer(dmg, clock.elapsedTime, src); },
+    damagePlayer: (dmg, src) => { if (player.alive) damagePlayer(dmg, simulationTime, src); },
     knockback: (dx, dz, force, up) => {
       const l = Math.hypot(dx, dz) || 1;
       player.vel.x += (dx / l) * force; player.vel.z += (dz / l) * force;
@@ -842,7 +857,7 @@ function spawnRifleBoss() {
   enemies = [];
   const spawn = new THREE.Vector3(0, 0, -24);
   boss = new RifleBoss(scene, spawn, wave, {
-    damagePlayer: (dmg, src) => { if (player.alive) damagePlayer(dmg, clock.elapsedTime, src); },
+    damagePlayer: (dmg, src) => { if (player.alive) damagePlayer(dmg, simulationTime, src); },
     shake: (a) => addShake(a * 手感.屏幕震动),
     dropSupply: (pos) => pickups.spawn(pos, Math.random() < 0.5 ? 'ammo' : 'health'),
     shoot: () => playShot({ ...武器Config('步枪').音色, 音量: (武器Config('步枪').音色.音量 ?? 0.8) * 0.6 }),
@@ -1004,9 +1019,9 @@ function enterJetMode(w = 8) {
   if (tank) { tank.remove(); tank = null; } inTank = false;
   for (const z of zombieJets) z.remove(); zombieJets = [];
   for (const a of allyJets) a.remove(); allyJets = [];
-  for (const b of jetBullets) scene.remove(b.mesh); jetBullets = [];
-  for (const m of jetMissiles) scene.remove(m.mesh); jetMissiles = [];
-  for (const b of enemyBullets) scene.remove(b.mesh); enemyBullets = [];
+  for (const b of jetBullets) disposeObject(b.mesh, { disposeMaterials: false }); jetBullets = [];
+  for (const m of jetMissiles) disposeObject(m.mesh, { disposeMaterials: false }); jetMissiles = [];
+  for (const b of enemyBullets) disposeObject(b.mesh, { disposeMaterials: false }); enemyBullets = [];
   clearWave9();
   clearStrikes();
   document.body.classList.add('jetmode');   // CSS 隐藏地面 HUD
@@ -1055,8 +1070,8 @@ function enterJetMode(w = 8) {
 function clearWave9() {
   if (w9Boss) { w9Boss.remove(); w9Boss = null; }
   for (const u of w9Units) u.remove(); w9Units = [];
-  for (const m of atMissiles) scene.remove(m.mesh); atMissiles = [];
-  for (const m of agMissiles) scene.remove(m.mesh); agMissiles = [];
+  for (const m of atMissiles) disposeObject(m.mesh, { disposeMaterials: false }); atMissiles = [];
+  for (const m of agMissiles) disposeObject(m.mesh, { disposeMaterials: false }); agMissiles = [];
   w9LockTarget = null; w9WarnT = 0;
 }
 
@@ -1067,9 +1082,9 @@ function exitJetMode() {
   if (playerJet) { playerJet.remove(); playerJet = null; }
   for (const z of zombieJets) z.remove(); zombieJets = [];
   for (const a of allyJets) a.remove(); allyJets = [];
-  for (const b of jetBullets) scene.remove(b.mesh); jetBullets = [];
-  for (const m of jetMissiles) scene.remove(m.mesh); jetMissiles = [];
-  for (const b of enemyBullets) scene.remove(b.mesh); enemyBullets = [];
+  for (const b of jetBullets) disposeObject(b.mesh, { disposeMaterials: false }); jetBullets = [];
+  for (const m of jetMissiles) disposeObject(m.mesh, { disposeMaterials: false }); jetMissiles = [];
+  for (const b of enemyBullets) disposeObject(b.mesh, { disposeMaterials: false }); enemyBullets = [];
   clearWave9();
   jetLockTarget = null;
   hud.jetReticle.style.display = 'none';
@@ -1130,7 +1145,7 @@ function updateJetFlight(dt) {
     jetPos.y = cfg.最低高度 + 坠机.弹起;          // 弹起来
     effects.addExplosion(jetPos.clone(), 6); playExplosion(); addShake(0.7 * 手感.屏幕震动); flashScreen(0.55);
     flashWaveBanner(`💥 撞地！第 ${jetCrashCount} 次 · -${dmg} 血`);
-    damagePlayer(dmg, clock.elapsedTime, jetPos.clone());
+    damagePlayer(dmg, simulationTime, jetPos.clone());
   }
 
   // 机身姿态：机头对准视线；协调转弯——顺着转向压坡度(向左转→左翼下沉)，与帧率无关
@@ -1305,10 +1320,11 @@ function updateJetMode(dt, time) {
 
   // 机炮弹飞行 + 命中
   for (let i = jetBullets.length - 1; i >= 0; i--) {
-    const b = jetBullets[i]; b.mesh.position.addScaledVector(b.vel, dt); b.life -= dt;
+    const b = jetBullets[i]; _segA.copy(b.mesh.position);
+    b.mesh.position.addScaledVector(b.vel, dt); b.life -= dt;
     let hit = false;
-    for (const jz of zombieJets) { if (jz.dead) continue; if (b.mesh.position.distanceToSquared(jz.root.position) <= b.r2) { hitZombieJet(jz, cfg.机炮.伤害); hit = true; break; } }
-    if (hit || b.life <= 0) { scene.remove(b.mesh); jetBullets.splice(i, 1); }
+    for (const jz of zombieJets) { if (jz.dead) continue; if (distToSeg2(_segA, b.mesh.position, jz.root.position) <= b.r2) { hitZombieJet(jz, cfg.机炮.伤害); hit = true; break; } }
+    if (hit || b.life <= 0) { disposeObject(b.mesh, { disposeMaterials: false }); jetBullets.splice(i, 1); }
   }
   // 导弹追踪
   for (let i = jetMissiles.length - 1; i >= 0; i--) {
@@ -1336,7 +1352,7 @@ function updateJetMode(dt, time) {
     mo.mesh.position.addScaledVector(mo.vel, dt);
     if (boom || expire) {
       effects.addExplosion(mo.mesh.position.clone(), 4); playExplosion();
-      scene.remove(mo.mesh); jetMissiles.splice(i, 1);
+      disposeObject(mo.mesh, { disposeMaterials: false }); jetMissiles.splice(i, 1);
     }
   }
   // 敌机 AI + 开火
@@ -1352,12 +1368,13 @@ function updateJetMode(dt, time) {
   }
   // 敌机子弹命中玩家
   for (let i = enemyBullets.length - 1; i >= 0; i--) {
-    const b = enemyBullets[i]; b.mesh.position.addScaledVector(b.vel, dt); b.life -= dt;
-    if (b.mesh.position.distanceToSquared(jetPos) <= b.r2) {
+    const b = enemyBullets[i]; _segA.copy(b.mesh.position);
+    b.mesh.position.addScaledVector(b.vel, dt); b.life -= dt;
+    if (distToSeg2(_segA, b.mesh.position, jetPos) <= b.r2) {
       if (player.alive) damagePlayer(cfg.敌机.子弹伤害, time, b.mesh.position.clone());
-      scene.remove(b.mesh); enemyBullets.splice(i, 1); continue;
+      disposeObject(b.mesh, { disposeMaterials: false }); enemyBullets.splice(i, 1); continue;
     }
-    if (b.life <= 0) { scene.remove(b.mesh); enemyBullets.splice(i, 1); }
+    if (b.life <= 0) { disposeObject(b.mesh, { disposeMaterials: false }); enemyBullets.splice(i, 1); }
   }
 
   updateJetHud();
@@ -1485,7 +1502,7 @@ function updateWave9(dt, time) {
       const rr = (t === w9Boss ? 12 : 6);
       if (distToSeg2(_segA, b.mesh.position, ap) <= rr * rr) { hitW9(t, cfg.机炮.伤害); hit = true; break; }
     }
-    if (hit || b.life <= 0 || b.mesh.position.y < -1) { scene.remove(b.mesh); jetBullets.splice(i, 1); }
+    if (hit || b.life <= 0 || b.mesh.position.y < -1) { disposeObject(b.mesh, { disposeMaterials: false }); jetBullets.splice(i, 1); }
   }
   // 反坦克导弹：直射，撞地/近目标 → 半径内 AoE
   for (let i = atMissiles.length - 1; i >= 0; i--) {
@@ -1496,7 +1513,7 @@ function updateWave9(dt, time) {
       const c = mo.mesh.position.clone();
       effects.addExplosion(c, cfg.反坦克导弹.半径); playExplosion(); addShake(0.2 * 手感.屏幕震动);
       for (const t of [...w9Targets()]) { if (t.aimPoint(_jtmp).distanceTo(c) <= cfg.反坦克导弹.半径) hitW9(t, cfg.反坦克导弹.伤害); }
-      scene.remove(mo.mesh); atMissiles.splice(i, 1);
+      disposeObject(mo.mesh, { disposeMaterials: false }); atMissiles.splice(i, 1);
     }
   }
   // 空对地锁定导弹：追踪目标直到命中
@@ -1513,7 +1530,7 @@ function updateWave9(dt, time) {
       if (dist < cfg.空对地.命中半径) { hitW9(mo.target, cfg.空对地.伤害); boom = true; }
     } else boom = mo.age > 1.2;
     mo.mesh.position.addScaledVector(mo.vel, dt);
-    if (boom || mo.age > 30) { effects.addExplosion(mo.mesh.position.clone(), 3.5); scene.remove(mo.mesh); agMissiles.splice(i, 1); }
+    if (boom || mo.age > 30) { effects.addExplosion(mo.mesh.position.clone(), 3.5); disposeObject(mo.mesh, { disposeMaterials: false }); agMissiles.splice(i, 1); }
   }
 
   // 简单模式僚机：跟飞 + 朝 BOSS/小弟开火（子弹复用玩家机炮弹 → 打 w9 目标）
@@ -1548,12 +1565,13 @@ function updateWave9(dt, time) {
 
   // 敌方子弹/炮弹命中玩家
   for (let i = enemyBullets.length - 1; i >= 0; i--) {
-    const b = enemyBullets[i]; b.mesh.position.addScaledVector(b.vel, dt); b.life -= dt;
-    if (b.mesh.position.distanceToSquared(jetPos) <= b.r2) {
+    const b = enemyBullets[i]; _segA.copy(b.mesh.position);
+    b.mesh.position.addScaledVector(b.vel, dt); b.life -= dt;
+    if (distToSeg2(_segA, b.mesh.position, jetPos) <= b.r2) {
       if (player.alive) damagePlayer(b.dmg, time, b.mesh.position.clone());
-      scene.remove(b.mesh); enemyBullets.splice(i, 1); continue;
+      disposeObject(b.mesh, { disposeMaterials: false }); enemyBullets.splice(i, 1); continue;
     }
-    if (b.life <= 0 || b.mesh.position.y < -2) { scene.remove(b.mesh); enemyBullets.splice(i, 1); }
+    if (b.life <= 0 || b.mesh.position.y < -2) { disposeObject(b.mesh, { disposeMaterials: false }); enemyBullets.splice(i, 1); }
   }
   // 清理死掉的小弟
   for (let i = w9Units.length - 1; i >= 0; i--) if (w9Units[i].dead) w9Units.splice(i, 1);
@@ -1734,7 +1752,7 @@ function spawnRadiation(pos, cfg) {
   radiationZones.push({ pos: pos.clone(), r, r2: r * r, life: cfg.辐射时长, tick: 0, cfg, mesh, ring });
 }
 function updateRadiation(dt) {
-  const t = clock.elapsedTime;
+  const t = simulationTime;
   for (let i = radiationZones.length - 1; i >= 0; i--) {
     const z = radiationZones[i]; z.life -= dt;
     const fade = Math.min(1, z.life / 2);                 // 最后 2 秒渐隐
@@ -2271,13 +2289,14 @@ const clock = new THREE.Clock();
 function frame() {
   requestAnimationFrame(frame);
   const dt = Math.min(0.05, clock.getDelta());
-  const time = clock.elapsedTime;
+  if (state === STATE.PLAYING && !paused && !callInOpen) simulationTime += dt;
+  const time = simulationTime;
 
   renderer.info.reset();   // 每帧手动清零，之后累加本帧所有 pass 的 draw call
   statsPanel.begin();
   quality.sample(dt);   // 前两秒自动测帧率、必要时降档
 
-  if (state === STATE.PLAYING && !callInOpen) {
+  if (state === STATE.PLAYING && !paused && !callInOpen) {
    if (jetMode) {
     updateJetMode(dt, time);
     effects.update(dt);
@@ -2483,7 +2502,8 @@ function updateHUD(dt) {
   hud.wave.textContent = wave;
   hud.score.textContent = score;
   hud.kills.textContent = kills;
-  hud.enemiesLeft.textContent = extractionActive ? aliveCount() : (waveActive ? (aliveCount() + toSpawn) : 0);
+  // 空战的敌人数由 updateJetHud / updateWave9 更新，不被地面计数覆盖。
+  if (!jetMode) hud.enemiesLeft.textContent = extractionActive ? aliveCount() : (waveActive ? (aliveCount() + toSpawn) : 0);
 
   // 准星扩散（命中时整体弹一下变亮）
   const spread = weapons.currentSpread() + weapons.recoilPitch * 60;
@@ -2513,7 +2533,7 @@ function updateHUD(dt) {
     const severity = 1 - hp01 / 打击感.低血阈值;         // 越低越强
     heartbeatTimer -= dt;
     if (heartbeatTimer <= 0) { playHeartbeat(); heartbeatTimer = 1.15 - severity * 0.5; }
-    pulse = (0.5 + 0.5 * Math.sin(clock.elapsedTime * 6)) * severity * 0.5;
+    pulse = (0.5 + 0.5 * Math.sin(simulationTime * 6)) * severity * 0.5;
   }
 
   // 受伤红晕（被打闪红 + 低血常驻/脉动，取较大值）
@@ -2531,7 +2551,13 @@ function updateHUD(dt) {
 function setupPauseMenu() {
   const $ = (id) => document.getElementById(id);
 
-  $('pm-resume').addEventListener('click', () => canvas.requestPointerLock());
+  $('pm-resume').addEventListener('click', () => {
+    if (document.pointerLockElement === canvas) {
+      paused = false; pauseMenu.style.display = 'none';
+      if (声音.开背景音乐) startMusic();
+      if (音效氛围.环境drone) startAmbient();
+    } else canvas.requestPointerLock();
+  });
   $('pm-restart').addEventListener('click', () => { startFreshGame(); canvas.requestPointerLock(); });
   $('pm-settings-btn').addEventListener('click', () => {
     const sp = $('settings-panel');
@@ -2583,6 +2609,7 @@ frame();
 
 // 开发调试入口（方便截图/自测，不影响正常游玩）
 window.__game = {
+  get paused() { return paused; },
   get state() { return state; },
   get player() { return player; },
   get enemies() { return enemies; },
@@ -2666,6 +2693,8 @@ window.__game = {
       tier: quality.tierName,
       calls: renderer.info.render.calls,
       tris: renderer.info.render.triangles,
+      geometries: renderer.info.memory.geometries,
+      textures: renderer.info.memory.textures,
       enemies: enemies.length,
       auto: quality._autoResult || null,
     };
@@ -2696,7 +2725,7 @@ window.__game = {
   get eyeCount() { return eyeField.mesh.count; },
   get pickupCount() { return pickups.active.length; },
   get pickupsActive() { return pickups.active; },
-  testDamageFrom(x, z) { damagePlayer(5, clock.elapsedTime, new THREE.Vector3(x, 0, z)); return hitDirs.length; },
+  testDamageFrom(x, z) { damagePlayer(5, simulationTime, new THREE.Vector3(x, 0, z)); return hitDirs.length; },
   simPath(sx, sz, px, pz, steps = 900) {
     const en = new Enemy(scene, new THREE.Vector3(sx, 0, sz), 1);
     en.speed = 4;

@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { 武器, 手感 } from './config.js';
 import { playShot, playReload, playDryFire, playHitmarker, playRocketFire, playMelee, playMeleeHit } from './audio.js';
 import { makeWeaponMesh } from './graphics/voxel/weapons.js';
+import { disposeObject } from './graphics/disposeObject.js';
 
 const smooth = (t) => { t = Math.max(0, Math.min(1, t)); return t * t * (3 - 2 * t); };
 
@@ -47,9 +48,18 @@ export class WeaponSystem {
 
   get cfg() { return 武器[this.current]; }
 
+  reset() {
+    for (const name of this.slots) this.ammo[name] = { mag: 武器[name].弹匣, reserve: 武器[name].备弹 };
+    this.current = '步枪'; this.previous = '手枪';
+    this.fireCooldown = 0; this.reloading = false; this.reloadTime = 0;
+    this.triggerHeld = false; this.triggerConsumed = false;
+    this.recoilPitch = 0; this.recoilYaw = 0; this.kickZ = 0; this.movementFactor = 0;
+    this.buildViewModel();
+  }
+
   buildViewModel() {
     // 清掉旧的
-    while (this.viewGroup.children.length) this.viewGroup.remove(this.viewGroup.children[0]);
+    while (this.viewGroup.children.length) disposeObject(this.viewGroup.children[0]);
 
     // 体素枪：body + mag + slide 三部件（顶点色，一个材质）
     const W = makeWeaponMesh(this.current);

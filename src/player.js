@@ -211,6 +211,10 @@ export class Player {
   }
 
   respawn() {
+    this.keys = {}; this.wantJump = false;
+    this.crouching = false; this.height = this.targetHeight = PLAYER.身高;
+    this.extraPitch = this.extraYaw = this.bobPhase = this.bobAmount = 0;
+    this.lastDamageTime = -999;
     this.pos = this.level.playerSpawn();
     this.pos.y = PLAYER.身高;
     this.vel.set(0, 0, 0);

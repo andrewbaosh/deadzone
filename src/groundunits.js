@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { disposeObject } from './graphics/disposeObject.js';
 
 /**
  * 第九波·空中打 BOSS 用的地面单位：
@@ -53,7 +54,7 @@ export class Wave9Boss {
   }
   // 顶部核心世界坐标（锁定/瞄准点）
   aimPoint(out) { return out.set(this.root.position.x, 8.5, this.root.position.z); }
-  remove() { this.scene.remove(this.root); }
+  remove() { disposeObject(this.root); }
 }
 
 class GroundUnit {
@@ -74,7 +75,7 @@ class GroundUnit {
     if (d > 30) { p.x += (dx / d) * this.cfg.移速 * dt; p.z += (dz / d) * this.cfg.移速 * dt; }
     p.y = 0;
   }
-  remove() { this.scene.remove(this.root); }
+  remove() { disposeObject(this.root); }
 }
 
 export class TankVehicle extends GroundUnit {

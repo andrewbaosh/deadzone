@@ -30,7 +30,7 @@
 - 默认 URL 是 `http://localhost:5173`，其他端口用 `URL=http://127.0.0.1:5174 npm test`。截图默认在忽略的 `test-results/`。
 - 功能验证用 `window.__game.startAt(n, 'easy'|'hard')` 和对应调试钩子，明确断言状态，不能只截图或吞掉异常。调试钩子不能替代真实键鼠交互验证。
 - WebGL 无头运行使用脚本中已有的 SwiftShader 参数。等待 `domcontentloaded` 后再等待 `window.__game`；后台标签页节流和 dt 钳制会让模拟变慢，不把真实等待秒数当游戏时间。
-- 当前自测只覆盖启动；`scripts/_bosstest.mjs` 是旧诊断脚本，第 3 波击杀后通关的注释已过时，不作为完整回归保证。
+- `npm test` 只覆盖启动；`npm run test:regression` 在 dev server 上验证暂停、重开局、高空命中、友军标识和资源释放。`scripts/_bosstest.mjs` 是旧诊断脚本，第 3 波击杀后通关的注释已过时，不作为完整回归保证。
 
 ## Git 与部署
 

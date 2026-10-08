@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { disposeObject } from './graphics/disposeObject.js';
 import { 轰炸机 } from './config/gameplay.js';
 
 /**
@@ -98,5 +99,5 @@ export class Bomber {
     return drop ? { drop } : null;
   }
 
-  remove() { this.scene.remove(this.root); }
+  remove() { disposeObject(this.root); }
 }

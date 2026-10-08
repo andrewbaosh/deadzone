@@ -44,6 +44,8 @@ npm run dev
 
 **空战（第 8/9 关）**：鼠标转向，W/S 调油门，C 切换座舱视角。第 8 关左键机炮，长按 2 锁定、松开发射导弹；第 9 关用 1/2/3 切换机炮、反坦克导弹、空对地锁定导弹，左键开火。
 
+简单模式下，绿色「友军 1 / 友军 2」标记的是帮助你的僚机，双方不能互相攻击。
+
 ## 上下看反了？
 
 游戏里上下看的方向可以一键改：打开 `src/config.js`，找到
@@ -112,6 +114,9 @@ npx playwright install chromium
 npm run build
 npm test
 npm run test:menu
+npm run test:regression
 ```
 
 默认访问 `http://localhost:5173`，截图输出到 `test-results/`（不提交）。端口不同可设置 `URL`，例如 `URL=http://127.0.0.1:5174 npm test`。这些是启动冒烟检查，不代表所有关卡已完成回归测试；功能验证可使用 `window.__game.startAt(9, 'hard')` 等调试接口。
+
+`test:regression` 需要 Vite 开发服务器，覆盖暂停/恢复、换弹中重开、高空弹道命中、友军标识和连续重开的资源释放。测试钩子仅在测试浏览器中注入，不进入发布产物。

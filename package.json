@@ -1,6 +1,6 @@
 {
   "name": "fps1",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "",
   "type": "module",
   "scripts": {
@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "node scripts/selftest.mjs",
-    "test:menu": "node scripts/selftest.mjs test-results/menu.png menu"
+    "test:menu": "node scripts/selftest.mjs test-results/menu.png menu",
+    "test:regression": "node scripts/regression.mjs"
   },
   "keywords": [],
   "author": "",
